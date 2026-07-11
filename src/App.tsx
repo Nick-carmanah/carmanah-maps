@@ -8,6 +8,7 @@ import { FEATURE_COLORS, type UserFeature } from './lib/features'
 import { fetchKmlFromUrl, parseKmlOrKmzFile, type ParsedKml } from './lib/kml'
 import { fetchLiveFires, type LiveFires } from './lib/livefires'
 import { formatArea, formatDistance, pathLengthMeters, ringAreaSqMeters } from './lib/measure'
+import { formatDuration, trackStats, useTrackRecorder } from './hooks/useTrackRecorder'
 import {
   deleteFeature,
   deleteOverlay,
@@ -44,6 +45,8 @@ export default function App() {
   const [userFeatures, setUserFeatures] = useState<UserFeature[]>([])
   const [pinMode, setPinMode] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
+  const track = useTrackRecorder((m, e) => showToastRef.current(m, e))
+  const showToastRef = useRef<(m: string, e?: boolean) => void>(() => {})
   const [toast, setToast] = useState<Toast | null>(null)
   const [focusRequest, setFocusRequest] = useState<{ id: string; nonce: number } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -74,6 +77,7 @@ export default function App() {
     setToast({ message, isError })
     toastTimer.current = setTimeout(() => setToast(null), isError ? 6000 : 3500)
   }, [])
+  showToastRef.current = showToast
 
   const refreshLiveFires = useCallback(async () => {
     setLiveRefreshing(true)
@@ -174,15 +178,20 @@ export default function App() {
   // ---- User features (pins, drawn lines/areas) ----
 
   const createFeature = useCallback(
-    async (kind: UserFeature['kind'], coordinates: Position | Position[], notes = '') => {
-      const count = userFeatures.filter((f) => f.kind === kind).length + 1
-      const label = { pin: 'Pin', line: 'Line', area: 'Area' }[kind]
+    async (
+      kind: UserFeature['kind'],
+      coordinates: Position | Position[],
+      notes = '',
+      opts: { label?: string; color?: string } = {},
+    ) => {
+      const label = opts.label ?? { pin: 'Pin', line: 'Line', area: 'Area' }[kind]
+      const count = userFeatures.filter((f) => f.name.startsWith(label)).length + 1
       const feature: UserFeature = {
         id: crypto.randomUUID(),
         kind,
         name: `${label} ${count}`,
         notes,
-        color: FEATURE_COLORS[0],
+        color: opts.color ?? FEATURE_COLORS[0],
         coordinates,
         createdAt: Date.now(),
         updatedAt: Date.now(),
@@ -213,6 +222,29 @@ export default function App() {
       createFeature(kind, points, stat)
     },
     [createFeature],
+  )
+
+  const handleSaveTrack = useCallback(
+    (as: 'line' | 'area') => {
+      const positions = track.points.map((p) => p.position)
+      if (as === 'area' && positions.length < 3) {
+        showToast('Need at least 3 points to make an area', true)
+        return
+      }
+      const stats = trackStats(track.points)
+      const notes = [
+        formatDistance(stats.distanceM),
+        formatDuration(stats.durationMs),
+        `avg ${stats.avgSpeedKmh.toFixed(1)} km/h`,
+        stats.elevGainM != null ? `+${Math.round(stats.elevGainM)} m gain` : null,
+        as === 'area' ? formatArea(ringAreaSqMeters(positions)) : null,
+      ]
+        .filter(Boolean)
+        .join(' · ')
+      createFeature(as, positions, notes, { label: 'Track', color: '#38bdf8' })
+      track.discard()
+    },
+    [track, createFeature, showToast],
   )
 
   const handleFeatureChange = useCallback((feature: UserFeature) => {
@@ -268,6 +300,20 @@ export default function App() {
           <span className="flame">🔥</span>Carmanah Maps
         </h1>
         <button
+          className={`btn${track.phase === 'recording' ? ' active recording' : ''}`}
+          onClick={() => {
+            if (track.phase === 'recording') track.stop()
+            else if (track.phase === 'idle') {
+              setPinMode(false)
+              setMeasuring(false)
+              track.start()
+            }
+          }}
+          title="Record a GPS track"
+        >
+          {track.phase === 'recording' ? '⏹ Stop' : '⏺ Track'}
+        </button>
+        <button
           className={`btn${pinMode ? ' active' : ''}`}
           onClick={() => {
             setMeasuring(false)
@@ -315,6 +361,7 @@ export default function App() {
           onSaveMeasure={handleSaveMeasure}
           liveFires={liveEnabled ? liveData : null}
           userFeatures={userFeatures}
+          trackPoints={track.points.map((p) => p.position)}
           pinMode={pinMode}
           onDropPin={handleDropPin}
           onEditFeature={setEditingId}
@@ -345,6 +392,38 @@ export default function App() {
           onError={(m) => showToast(m, true)}
         />
       )}
+
+      {track.phase !== 'idle' &&
+        (() => {
+          const stats = trackStats(track.points)
+          return (
+            <div className="track-chip">
+              <span className="readout">
+                {track.phase === 'recording' && <span className="rec-dot" />}
+                {formatDistance(stats.distanceM)} · {formatDuration(stats.durationMs)}
+                {stats.avgSpeedKmh > 0 && ` · ${stats.avgSpeedKmh.toFixed(1)} km/h`}
+                {stats.elevGainM != null && ` · +${Math.round(stats.elevGainM)} m`}
+              </span>
+              {track.phase === 'review' && (
+                <>
+                  <button className="btn" onClick={() => handleSaveTrack('line')}>
+                    Save track
+                  </button>
+                  <button
+                    className="btn"
+                    disabled={track.points.length < 3}
+                    onClick={() => handleSaveTrack('area')}
+                  >
+                    Save as area
+                  </button>
+                  <button className="btn" onClick={track.discard}>
+                    Discard
+                  </button>
+                </>
+              )}
+            </div>
+          )
+        })()}
 
       {editingId &&
         (() => {

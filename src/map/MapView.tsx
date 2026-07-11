@@ -66,6 +66,8 @@ interface MapViewProps {
   /** Live BCWS fire data to display, or null when the layer is off. */
   liveFires: LiveFires | null
   userFeatures: UserFeature[]
+  /** Live GPS track being recorded (empty when not recording). */
+  trackPoints: Position[]
   /** When true, the next map tap drops a pin. */
   pinMode: boolean
   onDropPin: (position: Position) => void
@@ -82,6 +84,7 @@ export default function MapView({
   onSaveMeasure,
   liveFires,
   userFeatures,
+  trackPoints,
   pinMode,
   onDropPin,
   onEditFeature,
@@ -183,6 +186,7 @@ export default function MapView({
       loadedRef.current = true
       addLiveFireLayers(map)
       addUserFeatureLayers(map)
+      addTrackLayers(map)
       addMeasureLayers(map)
       syncOverlays(map, overlaysRef.current)
       setLiveFireData(map, liveFiresRef.current)
@@ -304,6 +308,22 @@ export default function MapView({
     if (!map || !loadedRef.current) return
     setUserFeatureData(map, userFeatures)
   }, [userFeatures])
+
+  // Push the in-progress GPS track to the map.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !loadedRef.current) return
+    const source = map.getSource('track') as maplibregl.GeoJSONSource | undefined
+    source?.setData(
+      trackPoints.length >= 2
+        ? {
+            type: 'Feature',
+            properties: {},
+            geometry: { type: 'LineString', coordinates: trackPoints },
+          }
+        : EMPTY_FC,
+    )
+  }, [trackPoints])
 
   // Pin mode cursor.
   useEffect(() => {
@@ -519,6 +539,22 @@ function addUserFeatureLayers(map: MlMap) {
 function setUserFeatureData(map: MlMap, features: UserFeature[]) {
   const source = map.getSource('user-features') as maplibregl.GeoJSONSource | undefined
   source?.setData(featuresToGeoJSON(features))
+}
+
+function addTrackLayers(map: MlMap) {
+  map.addSource('track', { type: 'geojson', data: EMPTY_FC })
+  map.addLayer({
+    id: 'track-casing',
+    type: 'line',
+    source: 'track',
+    paint: { 'line-color': '#0c4a6e', 'line-width': 6, 'line-opacity': 0.7 },
+  })
+  map.addLayer({
+    id: 'track-line',
+    type: 'line',
+    source: 'track',
+    paint: { 'line-color': '#38bdf8', 'line-width': 3 },
+  })
 }
 
 function addMeasureLayers(map: MlMap) {

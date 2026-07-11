@@ -28,8 +28,8 @@ Legend: ✅ done · 🟡 partial · ⬜ todo · ➕ ours (no Avenza equivalent)
 | Feature | Avenza tier | Status | Notes |
 |---|---|---|---|
 | Real-time GPS position on map | Free | ✅ | Geolocate control w/ tracking |
-| Record GPS tracks (distance/time/speed/elevation) | Free | ⬜ | Track recorder + stats; needs wake lock; background tracking needs Capacitor (v2) |
-| Convert tracks to areas | Pro | ⬜ | After track recorder |
+| Record GPS tracks (distance/time/speed/elevation) | Free | ✅ | Foreground recording w/ wake lock, live stats chip; background tracking needs Capacitor (v2) |
+| Convert tracks to areas | Pro | ✅ | Save-as-area in the stop/review step |
 | Navigation/path tools (navigate to placemark: bearing, distance, ETA) | Free | ⬜ | Compass-style nav overlay |
 | Map rotation & compass | Free | 🟡 | Rotation works (drag/ctrl); needs device-compass north-up toggle on mobile |
 | Map orientation lock | Pro | ⬜ | Lock north-up / track-up |
@@ -82,7 +82,7 @@ Legend: ✅ done · 🟡 partial · ⬜ todo · ➕ ours (no Avenza equivalent)
 1. ~~Placemarks~~ ✅
 2. ~~Save drawn lines/areas + GPX import~~ ✅
 3. ~~Export KML/GPX/CSV~~ ✅ (share links todo)
-4. **GPS track recording** with stats; convert-track-to-area.
+4. ~~GPS track recording + convert-track-to-area~~ ✅ (foreground; background = v2/Capacitor)
 5. **Coordinate readout/search** (DD/DMS/UTM, then MGRS) + units toggle.
 6. **Navigate-to-placemark** + compass/orientation modes.
 7. **Geotagged photos**, **attribute fields**, **fire-ops symbol set**.
