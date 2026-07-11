@@ -149,6 +149,54 @@ html, body, #root {
   border-top: 1px solid #2e2e2e;
 }
 
+.btn.active {
+  background: #713f12;
+  border-color: #facc15;
+}
+
+/* ---- Save offline button ---- */
+.offline-btn {
+  position: absolute;
+  bottom: 40px;
+  right: 10px;
+  z-index: 5;
+  background: rgba(26, 26, 26, 0.92);
+  backdrop-filter: blur(8px);
+}
+
+.offline-btn:disabled {
+  color: #facc15;
+}
+
+/* ---- Measure chip ---- */
+.measure-chip {
+  position: absolute;
+  bottom: 40px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(26, 26, 26, 0.92);
+  backdrop-filter: blur(8px);
+  border: 1px solid #3a3a3a;
+  border-radius: 10px;
+  padding: 8px 12px;
+  z-index: 6;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.measure-chip .readout {
+  font-variant-numeric: tabular-nums;
+  color: #facc15;
+  font-weight: 600;
+}
+
+.measure-chip .btn:disabled {
+  opacity: 0.4;
+}
+
 /* ---- Toasts ---- */
 .toast {
   position: absolute;

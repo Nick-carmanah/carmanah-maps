@@ -30,7 +30,12 @@ export default defineConfig({
             handler: 'CacheFirst',
             options: {
               cacheName: 'map-tiles',
-              expiration: { maxEntries: 4000, maxAgeSeconds: 60 * 60 * 24 * 30 },
+              // Sized for saved offline areas (~3000 tiles each), not just browsing.
+              expiration: {
+                maxEntries: 15000,
+                maxAgeSeconds: 60 * 60 * 24 * 90,
+                purgeOnQuotaError: true,
+              },
               cacheableResponse: { statuses: [0, 200] }
             }
           }

@@ -14,13 +14,27 @@ interface CarmanahDB extends DBSchema {
     key: string
     value: Overlay
   }
+  // Generic key-value cache (live fire data, future map-pack manifests…).
+  kv: {
+    key: string
+    value: unknown
+  }
 }
 
-const dbPromise = openDB<CarmanahDB>('carmanah-maps', 1, {
-  upgrade(db) {
-    db.createObjectStore('overlays', { keyPath: 'id' })
+const dbPromise = openDB<CarmanahDB>('carmanah-maps', 2, {
+  upgrade(db, oldVersion) {
+    if (oldVersion < 1) db.createObjectStore('overlays', { keyPath: 'id' })
+    if (oldVersion < 2) db.createObjectStore('kv')
   },
 })
+
+export async function getCached<T>(key: string): Promise<T | undefined> {
+  return (await (await dbPromise).get('kv', key)) as T | undefined
+}
+
+export async function setCached(key: string, value: unknown): Promise<void> {
+  await (await dbPromise).put('kv', value, key)
+}
 
 export async function listOverlays(): Promise<Overlay[]> {
   const all = await (await dbPromise).getAll('overlays')

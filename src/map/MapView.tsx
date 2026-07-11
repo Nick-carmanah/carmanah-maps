@@ -1,7 +1,21 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import maplibregl, { Map as MlMap, Popup } from 'maplibre-gl'
+import type { FeatureCollection, Position } from 'geojson'
 import type { Overlay } from '../lib/store'
 import { boundsOf } from '../lib/geo'
+import {
+  formatArea,
+  formatDistance,
+  pathLengthMeters,
+  ringAreaSqMeters,
+} from '../lib/measure'
+import { STATUS_COLORS, STATUS_FALLBACK_COLOR, type LiveFires } from '../lib/livefires'
+import {
+  AVG_TILE_KB,
+  downloadMapPack,
+  estimateTileCount,
+  MAX_TILES,
+} from '../lib/mappacks'
 
 // Free, cache-friendly sources: OSM raster basemap + AWS open elevation tiles
 // (terrarium encoding) for 3D terrain and hillshade.
@@ -44,14 +58,76 @@ interface MapViewProps {
   hiddenIds: Set<string>
   /** Overlay id the map should fly to (changes trigger a fit). */
   focusRequest: { id: string; nonce: number } | null
+  measureMode: boolean
+  onExitMeasure: () => void
+  /** Live BCWS fire data to display, or null when the layer is off. */
+  liveFires: LiveFires | null
+  onNotify: (message: string, isError?: boolean) => void
 }
 
-export default function MapView({ overlays, hiddenIds, focusRequest }: MapViewProps) {
+export default function MapView({
+  overlays,
+  hiddenIds,
+  focusRequest,
+  measureMode,
+  onExitMeasure,
+  liveFires,
+  onNotify,
+}: MapViewProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<MlMap | null>(null)
   const loadedRef = useRef(false)
   const overlaysRef = useRef<Overlay[]>(overlays)
   overlaysRef.current = overlays
+  const measureModeRef = useRef(measureMode)
+  measureModeRef.current = measureMode
+  const [measurePoints, setMeasurePoints] = useState<Position[]>([])
+  const liveFiresRef = useRef<LiveFires | null>(liveFires)
+  liveFiresRef.current = liveFires
+  const [packProgress, setPackProgress] = useState<{ done: number; total: number } | null>(
+    null,
+  )
+  // Two-step confirm: first tap shows the size estimate, second tap downloads.
+  const [packEstimate, setPackEstimate] = useState<number | null>(null)
+  const estimateTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+
+  const saveOffline = async () => {
+    const map = mapRef.current
+    if (!map || packProgress) return
+
+    if (packEstimate === null) {
+      const count = estimateTileCount(map.getBounds())
+      if (count > MAX_TILES) {
+        onNotify(
+          `This view needs ~${count} tiles — zoom in to a fire-sized area first`,
+          true,
+        )
+        return
+      }
+      setPackEstimate(count)
+      clearTimeout(estimateTimer.current)
+      estimateTimer.current = setTimeout(() => setPackEstimate(null), 8000)
+      return
+    }
+
+    clearTimeout(estimateTimer.current)
+    setPackEstimate(null)
+    setPackProgress({ done: 0, total: 1 })
+    try {
+      const result = await downloadMapPack(map.getBounds(), (done, total) =>
+        setPackProgress({ done, total }),
+      )
+      onNotify(
+        `Area saved offline — ${result.fetched + result.alreadyCached} tiles ready` +
+          (result.failed ? ` (${result.failed} failed)` : ''),
+        result.failed > 0,
+      )
+    } catch (err) {
+      onNotify((err as Error).message, true)
+    } finally {
+      setPackProgress(null)
+    }
+  }
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -84,16 +160,30 @@ export default function MapView({ overlays, hiddenIds, focusRequest }: MapViewPr
 
     map.on('load', () => {
       loadedRef.current = true
+      addLiveFireLayers(map)
+      addMeasureLayers(map)
       syncOverlays(map, overlaysRef.current)
+      setLiveFireData(map, liveFiresRef.current)
     })
 
-    // Feature popup: tap a fire perimeter / point to see its KML name & description.
+    // Feature popup: tap a fire perimeter / point to see its name & details.
     map.on('click', (e) => {
+      if (measureModeRef.current) {
+        setMeasurePoints((prev) => [...prev, [e.lngLat.lng, e.lngLat.lat]])
+        return
+      }
+      // Labels have large invisible hit boxes that steal taps — skip them.
       const rendered = map
         .queryRenderedFeatures(e.point)
-        .find((f) => f.layer.id.startsWith('ov-'))
+        .find(
+          (f) =>
+            (f.layer.id.startsWith('ov-') || f.layer.id.startsWith('live-')) &&
+            !f.layer.id.endsWith('-label'),
+        )
       if (!rendered) return
-      const { name, description } = rendered.properties ?? {}
+      const { name, description } = rendered.layer.id.startsWith('live-')
+        ? liveFirePopupContent(rendered.properties ?? {})
+        : (rendered.properties ?? {})
       if (!name && !description) return
       const html = `<div style="max-width:240px;color:#111">
         ${name ? `<strong>${escapeHtml(String(name))}</strong>` : ''}
@@ -143,7 +233,211 @@ export default function MapView({ overlays, hiddenIds, focusRequest }: MapViewPr
     }
   }, [focusRequest])
 
-  return <div ref={containerRef} className="map-view" />
+  // Measure mode: crosshair cursor, no double-click zoom, clear points on exit.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    if (measureMode) {
+      map.getCanvas().style.cursor = 'crosshair'
+      map.doubleClickZoom.disable()
+    } else {
+      map.getCanvas().style.cursor = ''
+      map.doubleClickZoom.enable()
+      setMeasurePoints([])
+    }
+  }, [measureMode])
+
+  // Push measurement geometry to the map.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !loadedRef.current) return
+    const source = map.getSource('measure') as maplibregl.GeoJSONSource | undefined
+    source?.setData(measureFeatures(measurePoints))
+  }, [measurePoints])
+
+  // Push live fire data to the map.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !loadedRef.current) return
+    setLiveFireData(map, liveFires)
+  }, [liveFires])
+
+  const distanceM = pathLengthMeters(measurePoints)
+  const areaM2 = ringAreaSqMeters(measurePoints)
+
+  return (
+    <>
+      <div ref={containerRef} className="map-view" />
+      <button
+        className="btn offline-btn"
+        onClick={saveOffline}
+        disabled={!!packProgress}
+        title="Download basemap and terrain tiles for the current view"
+      >
+        {packProgress
+          ? `Saving… ${Math.round((packProgress.done / packProgress.total) * 100)}%`
+          : packEstimate !== null
+            ? `${packEstimate} tiles · ~${Math.max(1, Math.round((packEstimate * AVG_TILE_KB) / 1024))} MB — tap to confirm`
+            : '⬇ Save offline'}
+      </button>
+      {measureMode && (
+        <div className="measure-chip">
+          <span className="readout">
+            {measurePoints.length < 2
+              ? 'Tap the map to measure'
+              : `${formatDistance(distanceM)}${measurePoints.length >= 3 ? ` · ${formatArea(areaM2)}` : ''}`}
+          </span>
+          <button
+            className="btn"
+            disabled={!measurePoints.length}
+            onClick={() => setMeasurePoints((prev) => prev.slice(0, -1))}
+          >
+            Undo
+          </button>
+          <button className="btn" onClick={onExitMeasure}>
+            Done
+          </button>
+        </div>
+      )}
+    </>
+  )
+}
+
+function measureFeatures(points: Position[]): FeatureCollection {
+  const features: FeatureCollection['features'] = points.map((p) => ({
+    type: 'Feature',
+    properties: {},
+    geometry: { type: 'Point', coordinates: p },
+  }))
+  if (points.length >= 2) {
+    features.push({
+      type: 'Feature',
+      properties: {},
+      geometry: { type: 'LineString', coordinates: points },
+    })
+  }
+  if (points.length >= 3) {
+    features.push({
+      type: 'Feature',
+      properties: {},
+      geometry: { type: 'Polygon', coordinates: [[...points, points[0]]] },
+    })
+  }
+  return { type: 'FeatureCollection', features }
+}
+
+const EMPTY_FC: FeatureCollection = { type: 'FeatureCollection', features: [] }
+
+const STATUS_COLOR_EXPR = [
+  'match',
+  ['get', 'FIRE_STATUS'],
+  ...Object.entries(STATUS_COLORS).flat(),
+  STATUS_FALLBACK_COLOR,
+] as unknown as maplibregl.ExpressionSpecification
+
+function addLiveFireLayers(map: MlMap) {
+  map.addSource('live-perimeters', { type: 'geojson', data: EMPTY_FC })
+  map.addSource('live-points', { type: 'geojson', data: EMPTY_FC })
+
+  map.addLayer({
+    id: 'live-perim-fill',
+    type: 'fill',
+    source: 'live-perimeters',
+    paint: { 'fill-color': STATUS_COLOR_EXPR, 'fill-opacity': 0.18 },
+  })
+  map.addLayer({
+    id: 'live-perim-line',
+    type: 'line',
+    source: 'live-perimeters',
+    paint: { 'line-color': STATUS_COLOR_EXPR, 'line-width': 1.5 },
+  })
+  map.addLayer({
+    id: 'live-pts',
+    type: 'circle',
+    source: 'live-points',
+    paint: {
+      'circle-radius': ['interpolate', ['linear'], ['zoom'], 5, 3.5, 10, 6],
+      'circle-color': STATUS_COLOR_EXPR,
+      'circle-stroke-width': 1.5,
+      'circle-stroke-color': '#ffffff',
+    },
+  })
+  map.addLayer({
+    id: 'live-pts-label',
+    type: 'symbol',
+    source: 'live-points',
+    minzoom: 8,
+    layout: {
+      'text-field': ['get', 'FIRE_NUMBER'],
+      'text-font': ['Noto Sans Regular'],
+      'text-size': 11,
+      'text-offset': [0, 1],
+      'text-anchor': 'top',
+      'text-optional': true,
+    },
+    paint: {
+      'text-color': '#ffffff',
+      'text-halo-color': '#000000',
+      'text-halo-width': 1.5,
+    },
+  })
+}
+
+function setLiveFireData(map: MlMap, data: LiveFires | null) {
+  const perims = map.getSource('live-perimeters') as maplibregl.GeoJSONSource | undefined
+  const points = map.getSource('live-points') as maplibregl.GeoJSONSource | undefined
+  perims?.setData(data?.perimeters ?? EMPTY_FC)
+  points?.setData(data?.points ?? EMPTY_FC)
+}
+
+function liveFirePopupContent(props: Record<string, unknown>): {
+  name: string
+  description: string
+} {
+  const sizeHa = props.CURRENT_SIZE ?? props.FIRE_SIZE_HECTARES
+  const parts = [
+    props.FIRE_STATUS && `Status: ${props.FIRE_STATUS}`,
+    sizeHa != null && `Size: ${sizeHa} ha`,
+    props.FIRE_CAUSE && `Cause: ${props.FIRE_CAUSE}`,
+    props.GEOGRAPHIC_DESCRIPTION,
+  ].filter(Boolean)
+  return {
+    name: String(props.INCIDENT_NAME ?? props.FIRE_NUMBER ?? 'Fire'),
+    description: parts.join(' · '),
+  }
+}
+
+function addMeasureLayers(map: MlMap) {
+  map.addSource('measure', {
+    type: 'geojson',
+    data: { type: 'FeatureCollection', features: [] },
+  })
+  map.addLayer({
+    id: 'measure-fill',
+    type: 'fill',
+    source: 'measure',
+    filter: ['==', ['geometry-type'], 'Polygon'],
+    paint: { 'fill-color': '#facc15', 'fill-opacity': 0.15 },
+  })
+  map.addLayer({
+    id: 'measure-line',
+    type: 'line',
+    source: 'measure',
+    filter: ['==', ['geometry-type'], 'LineString'],
+    paint: { 'line-color': '#facc15', 'line-width': 2.5, 'line-dasharray': [2, 1] },
+  })
+  map.addLayer({
+    id: 'measure-pts',
+    type: 'circle',
+    source: 'measure',
+    filter: ['==', ['geometry-type'], 'Point'],
+    paint: {
+      'circle-radius': 5,
+      'circle-color': '#facc15',
+      'circle-stroke-width': 2,
+      'circle-stroke-color': '#1a1a1a',
+    },
+  })
 }
 
 function syncOverlays(map: MlMap, overlays: Overlay[]) {
@@ -162,6 +456,9 @@ function syncOverlays(map: MlMap, overlays: Overlay[]) {
     }
   }
 
+  // Keep imported overlays below the measurement graphics.
+  const beforeId = map.getLayer('measure-fill') ? 'measure-fill' : undefined
+
   for (const overlay of overlays) {
     const sourceId = `ov-${overlay.id}`
     if (map.getSource(sourceId)) continue
@@ -178,7 +475,7 @@ function syncOverlays(map: MlMap, overlays: Overlay[]) {
         'fill-color': ['coalesce', ['get', 'fill'], DEFAULT_FILL],
         'fill-opacity': ['coalesce', ['get', 'fill-opacity'], 0.25],
       },
-    })
+    }, beforeId)
     map.addLayer({
       id: `${sourceId}-line`,
       type: 'line',
@@ -189,7 +486,7 @@ function syncOverlays(map: MlMap, overlays: Overlay[]) {
         'line-width': ['coalesce', ['get', 'stroke-width'], 2],
         'line-opacity': ['coalesce', ['get', 'stroke-opacity'], 1],
       },
-    })
+    }, beforeId)
     map.addLayer({
       id: `${sourceId}-point`,
       type: 'circle',
@@ -201,7 +498,7 @@ function syncOverlays(map: MlMap, overlays: Overlay[]) {
         'circle-stroke-width': 2,
         'circle-stroke-color': '#ffffff',
       },
-    })
+    }, beforeId)
     map.addLayer({
       id: `${sourceId}-label`,
       type: 'symbol',
@@ -220,7 +517,7 @@ function syncOverlays(map: MlMap, overlays: Overlay[]) {
         'text-halo-color': '#000000',
         'text-halo-width': 1.5,
       },
-    })
+    }, beforeId)
   }
 }
 

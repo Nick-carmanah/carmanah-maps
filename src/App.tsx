@@ -3,13 +3,20 @@ import MapView from './map/MapView'
 import LayerPanel from './components/LayerPanel'
 import QrScanner from './components/QrScanner'
 import { fetchKmlFromUrl, parseKmlOrKmzFile, type ParsedKml } from './lib/kml'
+import { fetchLiveFires, type LiveFires } from './lib/livefires'
 import {
   deleteOverlay,
+  getCached,
   listOverlays,
   requestPersistentStorage,
   saveOverlay,
+  setCached,
   type Overlay,
 } from './lib/store'
+
+const LIVE_CACHE_KEY = 'livefires'
+const LIVE_ENABLED_KEY = 'carmanah-live-enabled'
+const LIVE_STALE_MS = 15 * 60 * 1000
 
 interface Toast {
   message: string
@@ -20,6 +27,12 @@ export default function App() {
   const [overlays, setOverlays] = useState<Overlay[]>([])
   const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set())
   const [scanning, setScanning] = useState(false)
+  const [measuring, setMeasuring] = useState(false)
+  const [liveEnabled, setLiveEnabled] = useState(
+    () => localStorage.getItem(LIVE_ENABLED_KEY) === '1',
+  )
+  const [liveData, setLiveData] = useState<LiveFires | null>(null)
+  const [liveRefreshing, setLiveRefreshing] = useState(false)
   const [toast, setToast] = useState<Toast | null>(null)
   const [focusRequest, setFocusRequest] = useState<{ id: string; nonce: number } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -49,6 +62,45 @@ export default function App() {
     setToast({ message, isError })
     toastTimer.current = setTimeout(() => setToast(null), isError ? 6000 : 3500)
   }, [])
+
+  const refreshLiveFires = useCallback(async () => {
+    setLiveRefreshing(true)
+    try {
+      const data = await fetchLiveFires()
+      setLiveData(data)
+      await setCached(LIVE_CACHE_KEY, data)
+      const active = data.points.features.length
+      showToast(`Live fires updated — ${active} active fires in BC`)
+    } catch {
+      showToast('Could not reach BC Wildfire Service — showing last saved data', true)
+    } finally {
+      setLiveRefreshing(false)
+    }
+  }, [showToast])
+
+  // Restore cached live-fire data; refresh if the layer is on and data is stale.
+  useEffect(() => {
+    getCached<LiveFires>(LIVE_CACHE_KEY).then((cached) => {
+      if (cached) setLiveData(cached)
+      if (
+        liveEnabled &&
+        navigator.onLine &&
+        (!cached || Date.now() - cached.fetchedAt > LIVE_STALE_MS)
+      ) {
+        refreshLiveFires()
+      }
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const toggleLive = useCallback(() => {
+    setLiveEnabled((prev) => {
+      const next = !prev
+      localStorage.setItem(LIVE_ENABLED_KEY, next ? '1' : '0')
+      if (next && !liveData && navigator.onLine) refreshLiveFires()
+      return next
+    })
+  }, [liveData, refreshLiveFires])
 
   const focusOverlay = useCallback((id: string) => {
     setFocusRequest({ id, nonce: Date.now() })
@@ -129,6 +181,12 @@ export default function App() {
         <h1>
           <span className="flame">🔥</span>Carmanah Maps
         </h1>
+        <button
+          className={`btn${measuring ? ' active' : ''}`}
+          onClick={() => setMeasuring((m) => !m)}
+        >
+          Measure
+        </button>
         <button className="btn" onClick={() => fileInputRef.current?.click()}>
           Import KML
         </button>
@@ -149,13 +207,26 @@ export default function App() {
       </header>
 
       <div className="map-container">
-        <MapView overlays={overlays} hiddenIds={hiddenIds} focusRequest={focusRequest} />
+        <MapView
+          overlays={overlays}
+          hiddenIds={hiddenIds}
+          focusRequest={focusRequest}
+          measureMode={measuring}
+          onExitMeasure={() => setMeasuring(false)}
+          liveFires={liveEnabled ? liveData : null}
+          onNotify={showToast}
+        />
         <LayerPanel
           overlays={overlays}
           hiddenIds={hiddenIds}
           onToggle={handleToggle}
           onRemove={handleRemove}
           onFocus={focusOverlay}
+          liveEnabled={liveEnabled}
+          liveFetchedAt={liveData?.fetchedAt ?? null}
+          liveRefreshing={liveRefreshing}
+          onToggleLive={toggleLive}
+          onRefreshLive={refreshLiveFires}
         />
       </div>
 

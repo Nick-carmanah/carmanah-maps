@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { Overlay } from '../lib/store'
+import { formatAge } from '../lib/livefires'
 
 interface LayerPanelProps {
   overlays: Overlay[]
@@ -7,6 +8,11 @@ interface LayerPanelProps {
   onToggle: (id: string) => void
   onRemove: (id: string) => void
   onFocus: (id: string) => void
+  liveEnabled: boolean
+  liveFetchedAt: number | null
+  liveRefreshing: boolean
+  onToggleLive: () => void
+  onRefreshLive: () => void
 }
 
 export default function LayerPanel({
@@ -15,6 +21,11 @@ export default function LayerPanel({
   onToggle,
   onRemove,
   onFocus,
+  liveEnabled,
+  liveFetchedAt,
+  liveRefreshing,
+  onToggleLive,
+  onRefreshLive,
 }: LayerPanelProps) {
   const [collapsed, setCollapsed] = useState(false)
 
@@ -24,6 +35,29 @@ export default function LayerPanel({
         <span>Layers ({overlays.length})</span>
         <span>{collapsed ? '▸' : '▾'}</span>
       </div>
+      {!collapsed && (
+        <div className="layer-row">
+          <input
+            type="checkbox"
+            checked={liveEnabled}
+            onChange={onToggleLive}
+            title="Show/hide live fires"
+          />
+          <span className="name">
+            Live BC fires
+            <div className="meta">
+              {liveRefreshing
+                ? 'updating…'
+                : liveFetchedAt
+                  ? `updated ${formatAge(liveFetchedAt)}`
+                  : 'not loaded yet'}
+            </div>
+          </span>
+          <button onClick={onRefreshLive} disabled={liveRefreshing} title="Refresh live fires">
+            ↻
+          </button>
+        </div>
+      )}
       {!collapsed &&
         (overlays.length === 0 ? (
           <div className="empty">Scan a fire QR code or import a KML to get started.</div>
