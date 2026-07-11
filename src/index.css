@@ -326,6 +326,11 @@ html, body, #root {
   padding: 8px 10px;
 }
 
+.units-toggle {
+  display: flex;
+  gap: 8px;
+}
+
 .settings-hint {
   color: #888;
   font-size: 12px;

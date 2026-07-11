@@ -8,6 +8,7 @@ import {
   formatDistance,
   pathLengthMeters,
   ringAreaSqMeters,
+  type Units,
 } from '../lib/measure'
 import { STATUS_COLORS, STATUS_FALLBACK_COLOR, type LiveFires } from '../lib/livefires'
 import {
@@ -100,6 +101,8 @@ interface MapViewProps {
   onDropPin: (position: Position) => void
   onEditFeature: (id: string) => void
   onNotify: (message: string, isError?: boolean) => void
+  /** Measurement units — also re-renders measurement readouts on change. */
+  units: Units
 }
 
 export default function MapView({
@@ -118,6 +121,7 @@ export default function MapView({
   onDropPin,
   onEditFeature,
   onNotify,
+  units,
 }: MapViewProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<MlMap | null>(null)
@@ -131,6 +135,14 @@ export default function MapView({
   liveFiresRef.current = liveFires
   const showLivePerimetersRef = useRef(showLivePerimeters)
   showLivePerimetersRef.current = showLivePerimeters
+  const scaleRef = useRef<maplibregl.ScaleControl | null>(null)
+  const unitsRef = useRef<Units>(units)
+  unitsRef.current = units
+
+  // Keep the scale bar in the chosen units.
+  useEffect(() => {
+    scaleRef.current?.setUnit(units)
+  }, [units])
   const userFeaturesRef = useRef<UserFeature[]>(userFeatures)
   userFeaturesRef.current = userFeatures
   const pinModeRef = useRef(pinMode)
@@ -163,8 +175,9 @@ export default function MapView({
   }, [basemap])
 
   // Coordinate readout & universal search
+  // DDM default — the BCWS field standard.
   const [coordFmt, setCoordFmt] = useState<CoordFormat>(
-    () => (localStorage.getItem('carmanah-coord-fmt') as CoordFormat) || 'dd',
+    () => (localStorage.getItem('carmanah-coord-fmt') as CoordFormat) || 'ddm',
   )
   const [center, setCenter] = useState<Position>([-123.37, 48.43])
   const [searchOpen, setSearchOpen] = useState(false)
@@ -322,7 +335,9 @@ export default function MapView({
       }),
       'top-right',
     )
-    map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-left')
+    const scale = new maplibregl.ScaleControl({ unit: unitsRef.current })
+    scaleRef.current = scale
+    map.addControl(scale, 'bottom-left')
 
     // Throttled center readout for the coordinate pill.
     let lastCenterUpdate = 0
@@ -398,6 +413,7 @@ export default function MapView({
       loadedRef.current = false
       map.remove()
       mapRef.current = null
+      scaleRef.current = null
     }
   }, [])
 

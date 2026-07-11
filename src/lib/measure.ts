@@ -38,12 +38,48 @@ export function ringAreaSqMeters(coords: Position[]): number {
   return Math.abs((sum * EARTH_RADIUS_M * EARTH_RADIUS_M) / 2)
 }
 
+// ---- Units (metric default; imperial = feet/miles/acres) ----
+
+export type Units = 'metric' | 'imperial'
+
+const UNITS_KEY = 'carmanah-units'
+
+export function getUnits(): Units {
+  return localStorage.getItem(UNITS_KEY) === 'imperial' ? 'imperial' : 'metric'
+}
+
+export function setUnits(units: Units): void {
+  localStorage.setItem(UNITS_KEY, units)
+}
+
+const FT_PER_M = 3.28084
+const MI_PER_M = 1 / 1609.344
+const ACRES_PER_SQM = 1 / 4046.8564
+
 export function formatDistance(meters: number): string {
+  if (getUnits() === 'imperial') {
+    const miles = meters * MI_PER_M
+    return miles >= 0.2
+      ? `${miles.toFixed(2)} mi`
+      : `${Math.round(meters * FT_PER_M)} ft`
+  }
   return meters >= 1000 ? `${(meters / 1000).toFixed(2)} km` : `${Math.round(meters)} m`
 }
 
-/** Hectares are the working unit for fire sizes. */
+export function formatSpeed(kmh: number): string {
+  return getUnits() === 'imperial'
+    ? `${(kmh * 0.621371).toFixed(1)} mph`
+    : `${kmh.toFixed(1)} km/h`
+}
+
+/** Hectares (or acres) are the working units for fire sizes. */
 export function formatArea(sqMeters: number): string {
+  if (getUnits() === 'imperial') {
+    const acres = sqMeters * ACRES_PER_SQM
+    if (acres >= 100) return `${Math.round(acres)} ac`
+    if (acres >= 0.1) return `${acres.toFixed(1)} ac`
+    return `${Math.round(sqMeters * FT_PER_M * FT_PER_M)} ft²`
+  }
   const ha = sqMeters / 10000
   if (ha >= 100) return `${Math.round(ha)} ha`
   if (ha >= 1) return `${ha.toFixed(1)} ha`

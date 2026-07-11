@@ -35,10 +35,10 @@ Legend: ✅ done · 🟡 partial · ⬜ todo · ➕ ours (no Avenza equivalent)
 | Map orientation lock | Pro | ⬜ | Lock north-up / track-up |
 | Coordinate search (go to coordinates) | Free | ✅ | Pill accepts DD, DMS, UTM, MGRS; flies + drops marker |
 | Map feature search (POI) | Free | ✅ | Universal search: My Data + imported KML features + live fires; dropdown for multi-match. Place-name gazetteer later |
-| Coordinate formats: DD/DMS/UTM | Free | ✅ | Live center readout w/ crosshair; format cycles, persisted |
+| Coordinate formats: DD/DMS/UTM | Free | ✅ | Live center readout w/ crosshair; DDM default (BCWS standard), cycles DD/DDM/DMS/UTM/MGRS, persisted |
 | MGRS / BNG grids | Pro | ✅ | MGRS done (UTM math verified ±1 m vs mgrs lib); BNG skipped (UK-only) |
 | what3words | Free | ⬜ | Optional; API-based, defer |
-| Measurement units switching | Free | 🟡 | Metric only; add imperial/nautical toggle |
+| Measurement units switching | Free | ✅ | Metric (m/km/ha) ↔ imperial (ft/mi/ac) in ⚙ settings; converts all readouts + scale bar |
 
 ## Plotting & data collection
 
@@ -104,7 +104,7 @@ layer/link confusion, OneDrive as a makeshift hub).
 2. ~~Save drawn lines/areas + GPX import~~ ✅
 3. ~~Export KML/GPX/CSV~~ ✅ (share links todo)
 4. ~~GPS track recording + convert-track-to-area~~ ✅ (foreground; background = v2/Capacitor)
-5. ~~Coordinate readout/search (DD/DMS/UTM/MGRS)~~ ✅ — units toggle still todo
+5. ~~Coordinate readout/search (DD/DDM/DMS/UTM/MGRS) + units toggle~~ ✅
 6. ~~Navigate-to-placemark~~ ✅ — device-compass / orientation-lock modes still todo (need real device)
 7. ~~Geotagged photos, attribute fields, fire-ops symbol set~~ ✅
 8. ~~Geofences on features~~ ✅ (layer/boundary fences later)

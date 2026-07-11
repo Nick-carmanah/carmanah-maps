@@ -7,7 +7,16 @@ import { featuresToCsv, featuresToGpx, featuresToKml, shareOrDownload } from './
 import { FEATURE_COLORS, type UserFeature } from './lib/features'
 import { fetchKmlFromUrl, parseImportedFile, type ParsedKml } from './lib/kml'
 import { fetchLiveFires, type LiveFires } from './lib/livefires'
-import { formatArea, formatDistance, pathLengthMeters, ringAreaSqMeters } from './lib/measure'
+import {
+  formatArea,
+  formatDistance,
+  formatSpeed,
+  getUnits,
+  pathLengthMeters,
+  ringAreaSqMeters,
+  setUnits,
+  type Units,
+} from './lib/measure'
 import { formatDuration, trackStats, useTrackRecorder } from './hooks/useTrackRecorder'
 import { conventionActive, buildConventionName, getProfile, saveProfile } from './lib/naming'
 import { navTargetPosition, useNavigation } from './hooks/useNavigation'
@@ -61,6 +70,7 @@ export default function App() {
   const [photos, setPhotos] = useState<PhotoThumb[]>([])
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [profile, setProfile] = useState(getProfile)
+  const [units, setUnitsState] = useState<Units>(getUnits)
   const navTarget = userFeatures.find((f) => f.id === navTargetId) ?? null
   const nav = useNavigation(navTarget, (m, e) => showToastRef.current(m, e))
   useGeofences(userFeatures, (m) => showToastRef.current(`⚠️ ${m}`, true))
@@ -267,7 +277,7 @@ export default function App() {
       const notes = [
         formatDistance(stats.distanceM),
         formatDuration(stats.durationMs),
-        `avg ${stats.avgSpeedKmh.toFixed(1)} km/h`,
+        `avg ${formatSpeed(stats.avgSpeedKmh)}`,
         stats.elevGainM != null ? `+${Math.round(stats.elevGainM)} m gain` : null,
         as === 'area' ? formatArea(ringAreaSqMeters(positions)) : null,
       ]
@@ -450,6 +460,7 @@ export default function App() {
           onDropPin={handleDropPin}
           onEditFeature={setEditingId}
           onNotify={showToast}
+          units={units}
         />
         <LayerPanel
           overlays={overlays}
@@ -487,7 +498,7 @@ export default function App() {
               <span className="readout">
                 {track.phase === 'recording' && <span className="rec-dot" />}
                 {formatDistance(stats.distanceM)} · {formatDuration(stats.durationMs)}
-                {stats.avgSpeedKmh > 0 && ` · ${stats.avgSpeedKmh.toFixed(1)} km/h`}
+                {stats.avgSpeedKmh > 0 && ` · ${formatSpeed(stats.avgSpeedKmh)}`}
                 {stats.elevGainM != null && ` · +${Math.round(stats.elevGainM)} m`}
               </span>
               {track.phase === 'review' && (
@@ -591,6 +602,25 @@ export default function App() {
                   saveProfile(next)
                 }}
               />
+            </label>
+          </div>
+          <div className="settings-fields">
+            <label>
+              Units
+              <span className="units-toggle">
+                {(['metric', 'imperial'] as const).map((u) => (
+                  <button
+                    key={u}
+                    className={`btn small${units === u ? ' active' : ''}`}
+                    onClick={() => {
+                      setUnits(u)
+                      setUnitsState(u)
+                    }}
+                  >
+                    {u === 'metric' ? 'Metric (m · km · ha)' : 'Imperial (ft · mi · ac)'}
+                  </button>
+                ))}
+              </span>
             </label>
           </div>
           <div className="settings-hint">
