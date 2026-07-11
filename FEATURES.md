@@ -98,6 +98,30 @@ layer/link confusion, OneDrive as a makeshift hub).
 | Geofences for airspace management / aviation safety | ✅ Already built |
 | Plot drone photos to reconstruct a track | ⬜ EXIF-GPS photo import |
 
+## Avenza tutorial audit (2026-07-12)
+
+Walked all 7 official Avenza tutorials (support.avenzamaps.com → Tutorials).
+New gaps found, beyond what the parity tables already track:
+
+| Tutorial feature | Status |
+|---|---|
+| Multi-point routes + navigate *along* a route (compass follows route) | 🟡 We draw/save lines and navigate to a point; no route-following mode |
+| Selective export (pick individual features / "Custom" data) | ⬜ We export all My Data at once |
+| KMZ export with photos embedded | ⬜ Photos stay local; KML exports without them |
+| GPX track export with timestamps/velocity | ⬜ We drop per-point times when saving a track (store TrackPoints → add) |
+| GeoPackage import (Pro) | ⬜ gpkg via sql.js or server; low priority |
+| Import from web URL (in-app paste) | 🟡 ?kml= deep link exists; add a paste-URL option in Import |
+| "Import as geofences" option | ⬜ Auto-arm fences on imported features — great for div boundaries |
+| Typed attribute schemas per layer (String/Bool/Real/Int, picklists) + active layer | 🟡 We have free-form key/value per feature; typed per-layer schemas later |
+| OSM place-name search (gazetteer) creating a feature | ⬜ Already tracked — confirms it's core Avenza UX |
+| Map details panel (publisher, projection, import date) | 🟡 We show feature count + date; fine for now |
+| Folders + Collections (auto-transition between adjacent maps) | Folders ⬜ tracked; collections **N/A** — our basemap is seamless, no map-to-map transitions exist |
+
+Where the tutorials show Avenza friction we simply don't have: linking layers
+to maps (all our data renders on the one continuous map), per-map
+georeferencing checks ("On Map"), custom-map backup warnings (our overlays
+persist in IndexedDB and later sync via accounts).
+
 ## Suggested build order (v1 parity push)
 
 1. ~~Placemarks~~ ✅
