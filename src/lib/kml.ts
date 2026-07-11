@@ -1,4 +1,4 @@
-import { kml } from '@tmcw/togeojson'
+import { gpx, kml } from '@tmcw/togeojson'
 import { unzipSync, strFromU8 } from 'fflate'
 import type { FeatureCollection } from 'geojson'
 
@@ -36,14 +36,29 @@ function parseKmz(buffer: ArrayBuffer, fallbackName: string): ParsedKml {
   return parseKmlString(strFromU8(files[entry]), fallbackName)
 }
 
+function parseGpxString(text: string, fallbackName: string): ParsedKml {
+  const dom = new DOMParser().parseFromString(text, 'application/xml')
+  if (dom.querySelector('parsererror')) {
+    throw new Error('Not a valid GPX file')
+  }
+  const geojson = gpx(dom) as FeatureCollection
+  if (!geojson.features.length) {
+    throw new Error('GPX contains no map features')
+  }
+  return { name: fallbackName, geojson }
+}
+
 function stripExtension(filename: string): string {
-  return filename.replace(/\.(kml|kmz)$/i, '')
+  return filename.replace(/\.(kml|kmz|gpx)$/i, '')
 }
 
 export async function parseKmlOrKmzFile(file: File): Promise<ParsedKml> {
   const fallbackName = stripExtension(file.name)
   if (file.name.toLowerCase().endsWith('.kmz')) {
     return parseKmz(await file.arrayBuffer(), fallbackName)
+  }
+  if (file.name.toLowerCase().endsWith('.gpx')) {
+    return parseGpxString(await file.text(), fallbackName)
   }
   return parseKmlString(await file.text(), fallbackName)
 }

@@ -1,5 +1,6 @@
 import { openDB, type DBSchema } from 'idb'
 import type { FeatureCollection } from 'geojson'
+import type { UserFeature } from './features'
 
 export interface Overlay {
   id: string
@@ -19,14 +20,33 @@ interface CarmanahDB extends DBSchema {
     key: string
     value: unknown
   }
+  // User-created pins, lines, and areas.
+  features: {
+    key: string
+    value: UserFeature
+  }
 }
 
-const dbPromise = openDB<CarmanahDB>('carmanah-maps', 2, {
+const dbPromise = openDB<CarmanahDB>('carmanah-maps', 3, {
   upgrade(db, oldVersion) {
     if (oldVersion < 1) db.createObjectStore('overlays', { keyPath: 'id' })
     if (oldVersion < 2) db.createObjectStore('kv')
+    if (oldVersion < 3) db.createObjectStore('features', { keyPath: 'id' })
   },
 })
+
+export async function listFeatures(): Promise<UserFeature[]> {
+  const all = await (await dbPromise).getAll('features')
+  return all.sort((a, b) => a.createdAt - b.createdAt)
+}
+
+export async function saveFeature(feature: UserFeature): Promise<void> {
+  await (await dbPromise).put('features', feature)
+}
+
+export async function deleteFeature(id: string): Promise<void> {
+  await (await dbPromise).delete('features', id)
+}
 
 export async function getCached<T>(key: string): Promise<T | undefined> {
   return (await (await dbPromise).get('kv', key)) as T | undefined

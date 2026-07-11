@@ -2,17 +2,25 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import MapView from './map/MapView'
 import LayerPanel from './components/LayerPanel'
 import QrScanner from './components/QrScanner'
+import FeatureSheet from './components/FeatureSheet'
+import { featuresToCsv, featuresToGpx, featuresToKml, shareOrDownload } from './lib/export'
+import { FEATURE_COLORS, type UserFeature } from './lib/features'
 import { fetchKmlFromUrl, parseKmlOrKmzFile, type ParsedKml } from './lib/kml'
 import { fetchLiveFires, type LiveFires } from './lib/livefires'
+import { formatArea, formatDistance, pathLengthMeters, ringAreaSqMeters } from './lib/measure'
 import {
+  deleteFeature,
   deleteOverlay,
   getCached,
+  listFeatures,
   listOverlays,
   requestPersistentStorage,
+  saveFeature,
   saveOverlay,
   setCached,
   type Overlay,
 } from './lib/store'
+import type { Position } from 'geojson'
 
 const LIVE_CACHE_KEY = 'livefires'
 const LIVE_ENABLED_KEY = 'carmanah-live-enabled'
@@ -33,6 +41,9 @@ export default function App() {
   )
   const [liveData, setLiveData] = useState<LiveFires | null>(null)
   const [liveRefreshing, setLiveRefreshing] = useState(false)
+  const [userFeatures, setUserFeatures] = useState<UserFeature[]>([])
+  const [pinMode, setPinMode] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
   const [toast, setToast] = useState<Toast | null>(null)
   const [focusRequest, setFocusRequest] = useState<{ id: string; nonce: number } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -40,6 +51,7 @@ export default function App() {
 
   useEffect(() => {
     requestPersistentStorage()
+    listFeatures().then(setUserFeatures)
     listOverlays().then((stored) => {
       setOverlays(stored)
       // Deep link: maps.carmanahwildfire.com?kml=<url> imports on open, so a
@@ -159,6 +171,80 @@ export default function App() {
     setOverlays((prev) => prev.filter((o) => o.id !== id))
   }, [])
 
+  // ---- User features (pins, drawn lines/areas) ----
+
+  const createFeature = useCallback(
+    async (kind: UserFeature['kind'], coordinates: Position | Position[], notes = '') => {
+      const count = userFeatures.filter((f) => f.kind === kind).length + 1
+      const label = { pin: 'Pin', line: 'Line', area: 'Area' }[kind]
+      const feature: UserFeature = {
+        id: crypto.randomUUID(),
+        kind,
+        name: `${label} ${count}`,
+        notes,
+        color: FEATURE_COLORS[0],
+        coordinates,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      }
+      await saveFeature(feature)
+      setUserFeatures((prev) => [...prev, feature])
+      setEditingId(feature.id)
+      return feature
+    },
+    [userFeatures],
+  )
+
+  const handleDropPin = useCallback(
+    (position: Position) => {
+      setPinMode(false)
+      createFeature('pin', position)
+    },
+    [createFeature],
+  )
+
+  const handleSaveMeasure = useCallback(
+    (kind: 'line' | 'area', points: Position[]) => {
+      setMeasuring(false)
+      const stat =
+        kind === 'line'
+          ? formatDistance(pathLengthMeters(points))
+          : formatArea(ringAreaSqMeters(points))
+      createFeature(kind, points, stat)
+    },
+    [createFeature],
+  )
+
+  const handleFeatureChange = useCallback((feature: UserFeature) => {
+    setUserFeatures((prev) => prev.map((f) => (f.id === feature.id ? feature : f)))
+    saveFeature(feature)
+  }, [])
+
+  const handleFeatureDelete = useCallback(async (id: string) => {
+    await deleteFeature(id)
+    setUserFeatures((prev) => prev.filter((f) => f.id !== id))
+    setEditingId(null)
+  }, [])
+
+  const handleExport = useCallback(
+    async (format: 'kml' | 'gpx' | 'csv') => {
+      if (!userFeatures.length) {
+        showToast('Nothing to export yet — drop a pin or draw something first', true)
+        return
+      }
+      const stamp = new Date().toISOString().slice(0, 10)
+      const exports = {
+        kml: [featuresToKml(userFeatures), 'application/vnd.google-earth.kml+xml'],
+        gpx: [featuresToGpx(userFeatures), 'application/gpx+xml'],
+        csv: [featuresToCsv(userFeatures), 'text/csv'],
+      } as const
+      const [content, mime] = exports[format]
+      const result = await shareOrDownload(`carmanah-maps-${stamp}.${format}`, mime, content)
+      showToast(result === 'shared' ? 'Shared' : `Downloaded .${format} file`)
+    },
+    [userFeatures, showToast],
+  )
+
   const handleToggle = useCallback((id: string) => {
     setHiddenIds((prev) => {
       const next = new Set(prev)
@@ -182,8 +268,21 @@ export default function App() {
           <span className="flame">🔥</span>Carmanah Maps
         </h1>
         <button
+          className={`btn${pinMode ? ' active' : ''}`}
+          onClick={() => {
+            setMeasuring(false)
+            setPinMode((p) => !p)
+          }}
+          title="Tap the map to drop a pin"
+        >
+          📍 Pin
+        </button>
+        <button
           className={`btn${measuring ? ' active' : ''}`}
-          onClick={() => setMeasuring((m) => !m)}
+          onClick={() => {
+            setPinMode(false)
+            setMeasuring((m) => !m)
+          }}
         >
           Measure
         </button>
@@ -213,7 +312,12 @@ export default function App() {
           focusRequest={focusRequest}
           measureMode={measuring}
           onExitMeasure={() => setMeasuring(false)}
+          onSaveMeasure={handleSaveMeasure}
           liveFires={liveEnabled ? liveData : null}
+          userFeatures={userFeatures}
+          pinMode={pinMode}
+          onDropPin={handleDropPin}
+          onEditFeature={setEditingId}
           onNotify={showToast}
         />
         <LayerPanel
@@ -227,6 +331,10 @@ export default function App() {
           liveRefreshing={liveRefreshing}
           onToggleLive={toggleLive}
           onRefreshLive={refreshLiveFires}
+          userFeatures={userFeatures}
+          onEditFeature={setEditingId}
+          onFocusFeature={focusOverlay}
+          onExport={handleExport}
         />
       </div>
 
@@ -237,6 +345,19 @@ export default function App() {
           onError={(m) => showToast(m, true)}
         />
       )}
+
+      {editingId &&
+        (() => {
+          const feature = userFeatures.find((f) => f.id === editingId)
+          return feature ? (
+            <FeatureSheet
+              feature={feature}
+              onChange={handleFeatureChange}
+              onDelete={handleFeatureDelete}
+              onClose={() => setEditingId(null)}
+            />
+          ) : null
+        })()}
 
       {toast && <div className={`toast${toast.isError ? ' error' : ''}`}>{toast.message}</div>}
     </div>

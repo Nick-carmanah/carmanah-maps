@@ -16,7 +16,7 @@ Legend: ✅ done · 🟡 partial · ⬜ todo · ➕ ours (no Avenza equivalent)
 | Map store / catalogue | Free | ⬜ | Our version: curated wildfire map-pack library (PMTiles regions) |
 | Organize maps in folders/collections | Free | ⬜ | Layer panel folders |
 | Import KML/KMZ | Free | ✅ | Button, drag-drop, QR scan, ?kml= deep link |
-| Import GPX | Free | ⬜ | Parser exists in togeojson — wire it up |
+| Import GPX | Free | ✅ | Same import path as KML |
 | Import GeoTIFF | Pro (unlimited) | ⬜ | Client-side: geotiff.js → canvas source; large files need server tiling |
 | Import geospatial PDF / GeoPDF | Pro (unlimited) | ⬜ | Server-side GDAL conversion → tiles (v1) |
 | Import JPG + reference file | Pro | ⬜ | Low priority |
@@ -44,13 +44,13 @@ Legend: ✅ done · 🟡 partial · ⬜ todo · ➕ ours (no Avenza equivalent)
 
 | Feature | Avenza tier | Status | Notes |
 |---|---|---|---|
-| Placemarks (drop/edit/move/color/notes) | Free | ⬜ | **Next up** — core field workflow |
-| Draw & save lines and areas | Free | 🟡 | Measure draws but doesn't save — add "save as layer" |
+| Placemarks (drop/edit/move/color/notes) | Free | ✅ | Pin button → tap map → edit sheet (name/notes/color); move pending |
+| Draw & save lines and areas | Free | ✅ | Measure sketch → Save line / Save area |
 | Measure distance & area | Free | ✅ | Geodesic km + hectares |
 | Geotagged photos on placemarks | Free | ⬜ | Camera/photo picker → IndexedDB blob, EXIF loc |
 | Attribute schema management (custom fields) | Free/Pro | ⬜ | Per-layer field definitions; fire-ops presets |
 | Custom symbol sets | Pro | ⬜ | Ship fire-ops symbols built-in (drop point, helispot, safety zone, escape route, guard, division break…) |
-| Customize symbols/colors per feature | Free | ⬜ | Style editor on placemark/draw |
+| Customize symbols/colors per feature | Free | 🟡 | Color swatches done; symbol choice todo |
 | Geofences on features | Pro (unlimited) | ⬜ | Entry/exit alerts; escape-route trigger points |
 | Geofences on layers / map boundaries / global alerts | Pro | ⬜ | After feature geofences |
 
@@ -58,11 +58,11 @@ Legend: ✅ done · 🟡 partial · ⬜ todo · ➕ ours (no Avenza equivalent)
 
 | Feature | Avenza tier | Status | Notes |
 |---|---|---|---|
-| Export KML | Free | ⬜ | Round-trip imported + drawn layers |
-| Export GPX | Free | ⬜ | Tracks/waypoints |
-| Export CSV | Free | ⬜ | Placemark attributes |
+| Export KML | Free | ✅ | My Data → KML (xmllint-validated) |
+| Export GPX | Free | ✅ | Waypoints + tracks |
+| Export CSV | Free | ✅ | Name/kind/coords/measurement/notes |
 | Shapefile export | Pro | ⬜ | For agency GIS shops |
-| Share map features (link/file) | Free | ⬜ | Web Share API + ?kml= deep links |
+| Share map features (link/file) | Free | 🟡 | OS share sheet w/ download fallback; ?kml= link sharing todo |
 | Map distribution to teams | Pro | ⬜ | Carmanah account layer sync (v1.5) |
 | Subscription/org management | Pro | ⬜ | Later, with Carmanah auth |
 
@@ -79,10 +79,9 @@ Legend: ✅ done · 🟡 partial · ⬜ todo · ➕ ours (no Avenza equivalent)
 
 ## Suggested build order (v1 parity push)
 
-1. **Placemarks** — drop, edit, notes, color, persist, export. Unlocks photos,
-   attributes, geofences, navigation targets.
-2. **Save drawn lines/areas** (extend measure) + **GPX import**.
-3. **Export KML/GPX/CSV** + share.
+1. ~~Placemarks~~ ✅
+2. ~~Save drawn lines/areas + GPX import~~ ✅
+3. ~~Export KML/GPX/CSV~~ ✅ (share links todo)
 4. **GPS track recording** with stats; convert-track-to-area.
 5. **Coordinate readout/search** (DD/DMS/UTM, then MGRS) + units toggle.
 6. **Navigate-to-placemark** + compass/orientation modes.

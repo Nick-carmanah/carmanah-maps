@@ -10,6 +10,7 @@ import {
   ringAreaSqMeters,
 } from '../lib/measure'
 import { STATUS_COLORS, STATUS_FALLBACK_COLOR, type LiveFires } from '../lib/livefires'
+import { featuresToGeoJSON, type UserFeature } from '../lib/features'
 import {
   AVG_TILE_KB,
   downloadMapPack,
@@ -60,8 +61,15 @@ interface MapViewProps {
   focusRequest: { id: string; nonce: number } | null
   measureMode: boolean
   onExitMeasure: () => void
+  /** Save the current measurement sketch as a persistent line/area. */
+  onSaveMeasure: (kind: 'line' | 'area', points: Position[]) => void
   /** Live BCWS fire data to display, or null when the layer is off. */
   liveFires: LiveFires | null
+  userFeatures: UserFeature[]
+  /** When true, the next map tap drops a pin. */
+  pinMode: boolean
+  onDropPin: (position: Position) => void
+  onEditFeature: (id: string) => void
   onNotify: (message: string, isError?: boolean) => void
 }
 
@@ -71,7 +79,12 @@ export default function MapView({
   focusRequest,
   measureMode,
   onExitMeasure,
+  onSaveMeasure,
   liveFires,
+  userFeatures,
+  pinMode,
+  onDropPin,
+  onEditFeature,
   onNotify,
 }: MapViewProps) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -84,6 +97,14 @@ export default function MapView({
   const [measurePoints, setMeasurePoints] = useState<Position[]>([])
   const liveFiresRef = useRef<LiveFires | null>(liveFires)
   liveFiresRef.current = liveFires
+  const userFeaturesRef = useRef<UserFeature[]>(userFeatures)
+  userFeaturesRef.current = userFeatures
+  const pinModeRef = useRef(pinMode)
+  pinModeRef.current = pinMode
+  const onDropPinRef = useRef(onDropPin)
+  onDropPinRef.current = onDropPin
+  const onEditFeatureRef = useRef(onEditFeature)
+  onEditFeatureRef.current = onEditFeature
   const [packProgress, setPackProgress] = useState<{ done: number; total: number } | null>(
     null,
   )
@@ -161,15 +182,22 @@ export default function MapView({
     map.on('load', () => {
       loadedRef.current = true
       addLiveFireLayers(map)
+      addUserFeatureLayers(map)
       addMeasureLayers(map)
       syncOverlays(map, overlaysRef.current)
       setLiveFireData(map, liveFiresRef.current)
+      setUserFeatureData(map, userFeaturesRef.current)
     })
 
-    // Feature popup: tap a fire perimeter / point to see its name & details.
+    // Tap priority: measuring > dropping a pin > editing your own features >
+    // info popups for imported/live features.
     map.on('click', (e) => {
       if (measureModeRef.current) {
         setMeasurePoints((prev) => [...prev, [e.lngLat.lng, e.lngLat.lat]])
+        return
+      }
+      if (pinModeRef.current) {
+        onDropPinRef.current([e.lngLat.lng, e.lngLat.lat])
         return
       }
       // Labels have large invisible hit boxes that steal taps — skip them.
@@ -177,10 +205,16 @@ export default function MapView({
         .queryRenderedFeatures(e.point)
         .find(
           (f) =>
-            (f.layer.id.startsWith('ov-') || f.layer.id.startsWith('live-')) &&
+            (f.layer.id.startsWith('ov-') ||
+              f.layer.id.startsWith('live-') ||
+              f.layer.id.startsWith('uf-')) &&
             !f.layer.id.endsWith('-label'),
         )
       if (!rendered) return
+      if (rendered.layer.id.startsWith('uf-')) {
+        onEditFeatureRef.current(String(rendered.properties?.id))
+        return
+      }
       const { name, description } = rendered.layer.id.startsWith('live-')
         ? liveFirePopupContent(rendered.properties ?? {})
         : (rendered.properties ?? {})
@@ -221,13 +255,15 @@ export default function MapView({
     }
   }, [overlays, hiddenIds])
 
-  // Fly to an overlay on request.
+  // Fly to an overlay or user feature on request.
   useEffect(() => {
     const map = mapRef.current
     if (!map || !focusRequest) return
     const overlay = overlaysRef.current.find((o) => o.id === focusRequest.id)
-    if (!overlay) return
-    const bounds = boundsOf(overlay.geojson)
+    const feature = userFeaturesRef.current.find((f) => f.id === focusRequest.id)
+    const geojson = overlay?.geojson ?? (feature ? featuresToGeoJSON([feature]) : null)
+    if (!geojson) return
+    const bounds = boundsOf(geojson)
     if (bounds) {
       map.fitBounds(bounds, { padding: 60, maxZoom: 14, duration: 800 })
     }
@@ -262,6 +298,21 @@ export default function MapView({
     setLiveFireData(map, liveFires)
   }, [liveFires])
 
+  // Push user features to the map.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !loadedRef.current) return
+    setUserFeatureData(map, userFeatures)
+  }, [userFeatures])
+
+  // Pin mode cursor.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    if (pinMode) map.getCanvas().style.cursor = 'crosshair'
+    else if (!measureModeRef.current) map.getCanvas().style.cursor = ''
+  }, [pinMode])
+
   const distanceM = pathLengthMeters(measurePoints)
   const areaM2 = ringAreaSqMeters(measurePoints)
 
@@ -294,6 +345,16 @@ export default function MapView({
           >
             Undo
           </button>
+          {measurePoints.length >= 2 && (
+            <button className="btn" onClick={() => onSaveMeasure('line', measurePoints)}>
+              Save line
+            </button>
+          )}
+          {measurePoints.length >= 3 && (
+            <button className="btn" onClick={() => onSaveMeasure('area', measurePoints)}>
+              Save area
+            </button>
+          )}
           <button className="btn" onClick={onExitMeasure}>
             Done
           </button>
@@ -407,6 +468,59 @@ function liveFirePopupContent(props: Record<string, unknown>): {
   }
 }
 
+function addUserFeatureLayers(map: MlMap) {
+  map.addSource('user-features', { type: 'geojson', data: EMPTY_FC })
+  map.addLayer({
+    id: 'uf-fill',
+    type: 'fill',
+    source: 'user-features',
+    filter: ['==', ['geometry-type'], 'Polygon'],
+    paint: { 'fill-color': ['get', 'color'], 'fill-opacity': 0.25 },
+  })
+  map.addLayer({
+    id: 'uf-line',
+    type: 'line',
+    source: 'user-features',
+    filter: ['in', ['geometry-type'], ['literal', ['Polygon', 'LineString']]],
+    paint: { 'line-color': ['get', 'color'], 'line-width': 3 },
+  })
+  map.addLayer({
+    id: 'uf-pts',
+    type: 'circle',
+    source: 'user-features',
+    filter: ['==', ['geometry-type'], 'Point'],
+    paint: {
+      'circle-radius': 7,
+      'circle-color': ['get', 'color'],
+      'circle-stroke-width': 2,
+      'circle-stroke-color': '#1a1a1a',
+    },
+  })
+  map.addLayer({
+    id: 'uf-label',
+    type: 'symbol',
+    source: 'user-features',
+    layout: {
+      'text-field': ['get', 'name'],
+      'text-font': ['Noto Sans Regular'],
+      'text-size': 12,
+      'text-offset': [0, 1.2],
+      'text-anchor': 'top',
+      'text-optional': true,
+    },
+    paint: {
+      'text-color': '#ffffff',
+      'text-halo-color': '#000000',
+      'text-halo-width': 1.5,
+    },
+  })
+}
+
+function setUserFeatureData(map: MlMap, features: UserFeature[]) {
+  const source = map.getSource('user-features') as maplibregl.GeoJSONSource | undefined
+  source?.setData(featuresToGeoJSON(features))
+}
+
 function addMeasureLayers(map: MlMap) {
   map.addSource('measure', {
     type: 'geojson',
@@ -456,8 +570,12 @@ function syncOverlays(map: MlMap, overlays: Overlay[]) {
     }
   }
 
-  // Keep imported overlays below the measurement graphics.
-  const beforeId = map.getLayer('measure-fill') ? 'measure-fill' : undefined
+  // Keep imported overlays below the user's own drawings and measurements.
+  const beforeId = map.getLayer('uf-fill')
+    ? 'uf-fill'
+    : map.getLayer('measure-fill')
+      ? 'measure-fill'
+      : undefined
 
   for (const overlay of overlays) {
     const sourceId = `ov-${overlay.id}`
