@@ -20,6 +20,7 @@ import {
 } from '../lib/features'
 import { fenceShapes } from '../lib/fences'
 import { buildGrid } from '../lib/grid'
+import { NWCG_SYMBOLS, nwcgIconUrl } from '../lib/nwcg'
 import {
   COORD_FORMATS,
   FORMAT_LABELS,
@@ -342,6 +343,19 @@ export default function MapView({
     // Dev console access (harmless in prod, handy for debugging in the field too)
     ;(window as unknown as Record<string, unknown>).__map = map
     map.on('error', (e) => console.error('[map error]', e.error?.message ?? e))
+
+    // NWCG icons load lazily the first time a feature references one.
+    map.on('styleimagemissing', async (e) => {
+      if (!e.id.startsWith('sym-nwcg-')) return
+      const spec = NWCG_SYMBOLS.find((s) => `sym-${s.key}` === e.id)
+      if (!spec) return
+      try {
+        const img = await map.loadImage(nwcgIconUrl(spec.file))
+        if (!map.hasImage(e.id)) map.addImage(e.id, img.data, { pixelRatio: 2 })
+      } catch {
+        // icon missing — feature falls back to unstyled symbol
+      }
+    })
 
     map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-right')
     map.addControl(

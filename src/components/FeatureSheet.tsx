@@ -9,6 +9,7 @@ import {
 } from '../lib/features'
 import { DEFAULT_FENCE_RADIUS_M } from '../lib/fences'
 import { buildConventionName, TRACK_TYPES } from '../lib/naming'
+import { NWCG_SYMBOLS, nwcgIconUrl } from '../lib/nwcg'
 
 export interface PhotoThumb {
   id: string
@@ -55,6 +56,11 @@ export default function FeatureSheet({
 
   const [viewPhoto, setViewPhoto] = useState<string | null>(null)
   const photoInputRef = useRef<HTMLInputElement>(null)
+  const [nwcgOpen, setNwcgOpen] = useState(false)
+  const [symbolSearch, setSymbolSearch] = useState('')
+  const nwcgMatches = NWCG_SYMBOLS.filter((s) =>
+    s.label.toLowerCase().includes(symbolSearch.toLowerCase()),
+  )
 
   const attributes = feature.attributes ?? []
   const setAttr = (i: number, patch: Partial<{ k: string; v: string }>) =>
@@ -128,6 +134,35 @@ export default function FeatureSheet({
                 {s.text}
               </button>
             ))}
+            <button
+              className={`btn small${nwcgOpen ? ' active' : ''}`}
+              onClick={() => setNwcgOpen((o) => !o)}
+            >
+              {nwcgOpen ? '▴ NWCG' : `▾ NWCG (${NWCG_SYMBOLS.length})`}
+            </button>
+          </div>
+        )}
+
+        {feature.kind === 'pin' && nwcgOpen && (
+          <div className="nwcg-picker">
+            <input
+              value={symbolSearch}
+              onChange={(e) => setSymbolSearch(e.target.value)}
+              placeholder="Search NWCG GeoOps symbols…"
+            />
+            <div className="nwcg-grid">
+              {nwcgMatches.map((s) => (
+                <button
+                  key={s.key}
+                  className={`nwcg-btn${feature.symbol === s.key ? ' selected' : ''}`}
+                  onClick={() => update({ symbol: s.key, layer: s.layer })}
+                  title={`${s.label} → ${s.layer} layer`}
+                >
+                  <img src={nwcgIconUrl(s.file)} alt="" />
+                  <span>{s.label}</span>
+                </button>
+              ))}
+            </div>
           </div>
         )}
 

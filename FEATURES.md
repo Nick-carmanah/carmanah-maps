@@ -94,7 +94,7 @@ layer/link confusion, OneDrive as a makeshift hub).
 | "North is up!" — orientation discipline | ⬜ North-lock toggle |
 | Slope estimate via rise-over-run for heavy equipment ops | ⬜ We have DEM — auto slope/elevation profile along any drawn line beats manual method |
 | Compass bearing deduction ("saw smoke, shoot bearing, draw line") | ⬜ Draw-line-by-bearing tool |
-| NWCG Fire Ops symbol set is the standard import | ⬜ Align our symbol set with NWCG glyphs |
+| NWCG Fire Ops symbol set is the standard import | ✅ Full NWCG GeoOps 2022 set (51 official icons) bundled, searchable picker, lazy-loaded, auto-layer per symbol. Generic .avenzasymbols import later |
 | Master/Day/Specialty layers; copy features into layers to share | ⬜ Layer/folder system with an "active day layer" for new features |
 | OneDrive/Teams as shared hub; "layer not linked to map" pain | ⬜ Solved properly by Carmanah account layer sync (v1.5) |
 | Geofences for airspace management / aviation safety | ✅ Already built |

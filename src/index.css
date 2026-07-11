@@ -504,6 +504,54 @@ html, body, #root {
   font-size: 12px;
 }
 
+.nwcg-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.nwcg-picker input {
+  background: #2a2a2a;
+  border: 1px solid #444;
+  border-radius: 8px;
+  color: #eee;
+  font-size: 13px;
+  padding: 8px 10px;
+}
+
+.nwcg-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+  gap: 6px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.nwcg-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  background: #232323;
+  border: 1px solid #333;
+  border-radius: 8px;
+  color: #ccc;
+  font-size: 10px;
+  padding: 8px 4px;
+  cursor: pointer;
+  text-align: center;
+}
+
+.nwcg-btn img {
+  width: 28px;
+  height: 28px;
+}
+
+.nwcg-btn.selected {
+  border-color: #facc15;
+  background: #2e2a1a;
+}
+
 .attr-section {
   display: flex;
   flex-direction: column;
