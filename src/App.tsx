@@ -5,7 +5,7 @@ import QrScanner from './components/QrScanner'
 import FeatureSheet, { type PhotoThumb } from './components/FeatureSheet'
 import { featuresToCsv, featuresToGpx, featuresToKml, shareOrDownload } from './lib/export'
 import { FEATURE_COLORS, type UserFeature } from './lib/features'
-import { fetchKmlFromUrl, parseKmlOrKmzFile, type ParsedKml } from './lib/kml'
+import { fetchKmlFromUrl, parseImportedFile, type ParsedKml } from './lib/kml'
 import { fetchLiveFires, type LiveFires } from './lib/livefires'
 import { formatArea, formatDistance, pathLengthMeters, ringAreaSqMeters } from './lib/measure'
 import { formatDuration, trackStats, useTrackRecorder } from './hooks/useTrackRecorder'
@@ -155,7 +155,7 @@ export default function App() {
       if (!files?.length) return
       for (const file of Array.from(files)) {
         try {
-          await addOverlay(await parseKmlOrKmzFile(file))
+          await addOverlay(await parseImportedFile(file))
         } catch (err) {
           showToast(`${file.name}: ${(err as Error).message}`, true)
         }
@@ -380,8 +380,12 @@ export default function App() {
         >
           Measure
         </button>
-        <button className="btn" onClick={() => fileInputRef.current?.click()}>
-          Import KML
+        <button
+          className="btn"
+          onClick={() => fileInputRef.current?.click()}
+          title="Import KML, KMZ, GPX, or zipped shapefile"
+        >
+          Import
         </button>
         <button className="btn primary" onClick={() => setScanning(true)}>
           Scan fire QR
@@ -389,7 +393,7 @@ export default function App() {
         <input
           ref={fileInputRef}
           type="file"
-          accept=".kml,.kmz"
+          accept=".kml,.kmz,.gpx,.zip,.shp"
           multiple
           hidden
           onChange={(e) => {

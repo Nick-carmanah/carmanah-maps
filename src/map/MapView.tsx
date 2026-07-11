@@ -372,9 +372,11 @@ export default function MapView({
         onEditFeatureRef.current(String(rendered.properties?.id))
         return
       }
+      const props = rendered.properties ?? {}
       const { name, description } = rendered.layer.id.startsWith('live-')
-        ? liveFirePopupContent(rendered.properties ?? {})
-        : (rendered.properties ?? {})
+        ? liveFirePopupContent(props)
+        : // Shapefile attributes are commonly uppercase.
+          { name: props.name ?? props.NAME ?? props.Name, description: props.description }
       if (!name && !description) return
       const html = `<div style="max-width:240px;color:#111">
         ${name ? `<strong>${escapeHtml(String(name))}</strong>` : ''}

@@ -48,17 +48,34 @@ function parseGpxString(text: string, fallbackName: string): ParsedKml {
   return { name: fallbackName, geojson }
 }
 
-function stripExtension(filename: string): string {
-  return filename.replace(/\.(kml|kmz|gpx)$/i, '')
+async function parseShapefile(buffer: ArrayBuffer, fallbackName: string): Promise<ParsedKml> {
+  const { default: shp } = await import('shpjs')
+  const parsed = await shp(buffer)
+  // Zipped shapefiles can hold several layers — merge them into one overlay.
+  const collections = Array.isArray(parsed) ? parsed : [parsed]
+  const features = collections.flatMap((fc) => fc.features)
+  if (!features.length) {
+    throw new Error('Shapefile contains no map features')
+  }
+  return { name: fallbackName, geojson: { type: 'FeatureCollection', features } }
 }
 
-export async function parseKmlOrKmzFile(file: File): Promise<ParsedKml> {
+function stripExtension(filename: string): string {
+  return filename.replace(/\.(kml|kmz|gpx|zip|shp)$/i, '')
+}
+
+/** Import any supported file: KML, KMZ, GPX, or (zipped) shapefile. */
+export async function parseImportedFile(file: File): Promise<ParsedKml> {
   const fallbackName = stripExtension(file.name)
-  if (file.name.toLowerCase().endsWith('.kmz')) {
+  const lower = file.name.toLowerCase()
+  if (lower.endsWith('.kmz')) {
     return parseKmz(await file.arrayBuffer(), fallbackName)
   }
-  if (file.name.toLowerCase().endsWith('.gpx')) {
+  if (lower.endsWith('.gpx')) {
     return parseGpxString(await file.text(), fallbackName)
+  }
+  if (lower.endsWith('.zip') || lower.endsWith('.shp')) {
+    return parseShapefile(await file.arrayBuffer(), fallbackName)
   }
   return parseKmlString(await file.text(), fallbackName)
 }

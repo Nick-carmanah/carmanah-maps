@@ -20,7 +20,7 @@ Legend: ✅ done · 🟡 partial · ⬜ todo · ➕ ours (no Avenza equivalent)
 | Import GeoTIFF | Pro (unlimited) | ⬜ | Client-side: geotiff.js → canvas source; large files need server tiling |
 | Import geospatial PDF / GeoPDF | Pro (unlimited) | ⬜ | Server-side GDAL conversion → tiles (v1) |
 | Import JPG + reference file | Pro | ⬜ | Low priority |
-| Shapefile import | Pro | ⬜ | shpjs client-side |
+| Shapefile import | Pro | ✅ | Zipped .shp via shpjs (lazy-loaded); attributes preserved; uppercase NAME shown in popups |
 | Layer visibility management | Free | ✅ | Layer panel show/hide |
 
 ## GPS, navigation & orientation
@@ -88,4 +88,4 @@ Legend: ✅ done · 🟡 partial · ⬜ todo · ➕ ours (no Avenza equivalent)
 7. ~~Geotagged photos, attribute fields, fire-ops symbol set~~ ✅
 8. ~~Geofences on features~~ ✅ (layer/boundary fences later)
 9. ~~Satellite basemap + feature search~~ ✅ (folders later)
-10. **GeoTIFF/shapefile import**, **shapefile export**, GeoPDF via server (v1).
+10. 🟡 Shapefile import ✅ — still todo: GeoTIFF import, shapefile export, GeoPDF (server-side)
