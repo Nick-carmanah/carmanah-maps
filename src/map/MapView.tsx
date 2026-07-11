@@ -12,6 +12,13 @@ import {
 import { STATUS_COLORS, STATUS_FALLBACK_COLOR, type LiveFires } from '../lib/livefires'
 import { featuresToGeoJSON, type UserFeature } from '../lib/features'
 import {
+  COORD_FORMATS,
+  FORMAT_LABELS,
+  formatCoord,
+  parseCoordinate,
+  type CoordFormat,
+} from '../lib/coords'
+import {
   AVG_TILE_KB,
   downloadMapPack,
   estimateTileCount,
@@ -115,6 +122,39 @@ export default function MapView({
   const [packEstimate, setPackEstimate] = useState<number | null>(null)
   const estimateTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
+  // Coordinate readout & search
+  const [coordFmt, setCoordFmt] = useState<CoordFormat>(
+    () => (localStorage.getItem('carmanah-coord-fmt') as CoordFormat) || 'dd',
+  )
+  const [center, setCenter] = useState<Position>([-123.37, 48.43])
+  const [searchOpen, setSearchOpen] = useState(false)
+  const [searchText, setSearchText] = useState('')
+
+  const cycleFormat = () => {
+    const next = COORD_FORMATS[(COORD_FORMATS.indexOf(coordFmt) + 1) % COORD_FORMATS.length]
+    setCoordFmt(next)
+    localStorage.setItem('carmanah-coord-fmt', next)
+  }
+
+  const runSearch = () => {
+    const pos = parseCoordinate(searchText)
+    if (!pos) {
+      onNotify('Could not read that — try DD, DMS, UTM, or MGRS', true)
+      return
+    }
+    const map = mapRef.current
+    if (!map) return
+    const source = map.getSource('coord-marker') as maplibregl.GeoJSONSource | undefined
+    source?.setData({
+      type: 'Feature',
+      properties: {},
+      geometry: { type: 'Point', coordinates: pos },
+    })
+    map.flyTo({ center: pos as [number, number], zoom: Math.max(map.getZoom(), 13) })
+    setSearchOpen(false)
+    setSearchText('')
+  }
+
   const saveOffline = async () => {
     const map = mapRef.current
     if (!map || packProgress) return
@@ -182,11 +222,22 @@ export default function MapView({
     )
     map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-left')
 
+    // Throttled center readout for the coordinate pill.
+    let lastCenterUpdate = 0
+    map.on('move', () => {
+      const now = performance.now()
+      if (now - lastCenterUpdate < 150) return
+      lastCenterUpdate = now
+      const c = map.getCenter()
+      setCenter([c.lng, c.lat])
+    })
+
     map.on('load', () => {
       loadedRef.current = true
       addLiveFireLayers(map)
       addUserFeatureLayers(map)
       addTrackLayers(map)
+      addCoordMarkerLayer(map)
       addMeasureLayers(map)
       syncOverlays(map, overlaysRef.current)
       setLiveFireData(map, liveFiresRef.current)
@@ -339,6 +390,38 @@ export default function MapView({
   return (
     <>
       <div ref={containerRef} className="map-view" />
+      <div className="coord-pill">
+        {searchOpen ? (
+          <>
+            <input
+              autoFocus
+              value={searchText}
+              onChange={(e) => setSearchText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') runSearch()
+                if (e.key === 'Escape') setSearchOpen(false)
+              }}
+              placeholder="DD, DMS, UTM, or MGRS…"
+            />
+            <button className="pill-btn" onClick={runSearch}>
+              Go
+            </button>
+            <button className="pill-btn" onClick={() => setSearchOpen(false)}>
+              ✕
+            </button>
+          </>
+        ) : (
+          <>
+            <span className="coord-text" onClick={() => setSearchOpen(true)} title="Search coordinates">
+              {formatCoord(center, coordFmt)}
+            </span>
+            <button className="pill-btn" onClick={cycleFormat} title="Switch coordinate format">
+              {FORMAT_LABELS[coordFmt]}
+            </button>
+          </>
+        )}
+      </div>
+      <div className="center-crosshair" aria-hidden />
       <button
         className="btn offline-btn"
         onClick={saveOffline}
@@ -554,6 +637,21 @@ function addTrackLayers(map: MlMap) {
     type: 'line',
     source: 'track',
     paint: { 'line-color': '#38bdf8', 'line-width': 3 },
+  })
+}
+
+function addCoordMarkerLayer(map: MlMap) {
+  map.addSource('coord-marker', { type: 'geojson', data: EMPTY_FC })
+  map.addLayer({
+    id: 'coord-marker',
+    type: 'circle',
+    source: 'coord-marker',
+    paint: {
+      'circle-radius': 8,
+      'circle-color': 'rgba(0,0,0,0)',
+      'circle-stroke-width': 3,
+      'circle-stroke-color': '#fb923c',
+    },
   })
 }
 

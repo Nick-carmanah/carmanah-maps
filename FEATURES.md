@@ -33,10 +33,10 @@ Legend: ✅ done · 🟡 partial · ⬜ todo · ➕ ours (no Avenza equivalent)
 | Navigation/path tools (navigate to placemark: bearing, distance, ETA) | Free | ⬜ | Compass-style nav overlay |
 | Map rotation & compass | Free | 🟡 | Rotation works (drag/ctrl); needs device-compass north-up toggle on mobile |
 | Map orientation lock | Pro | ⬜ | Lock north-up / track-up |
-| Coordinate search (go to coordinates) | Free | ⬜ | Search box accepting lat/lon, UTM |
+| Coordinate search (go to coordinates) | Free | ✅ | Pill accepts DD, DMS, UTM, MGRS; flies + drops marker |
 | Map feature search (POI) | Free | ⬜ | Search imported features + gazetteer |
-| Coordinate formats: DD/DMS/UTM | Free | ⬜ | Coordinate readout + format switcher |
-| MGRS / BNG grids | Pro | ⬜ | MGRS matters for interagency; BNG skip (UK-only) |
+| Coordinate formats: DD/DMS/UTM | Free | ✅ | Live center readout w/ crosshair; format cycles, persisted |
+| MGRS / BNG grids | Pro | ✅ | MGRS done (UTM math verified ±1 m vs mgrs lib); BNG skipped (UK-only) |
 | what3words | Free | ⬜ | Optional; API-based, defer |
 | Measurement units switching | Free | 🟡 | Metric only; add imperial/nautical toggle |
 
@@ -83,7 +83,7 @@ Legend: ✅ done · 🟡 partial · ⬜ todo · ➕ ours (no Avenza equivalent)
 2. ~~Save drawn lines/areas + GPX import~~ ✅
 3. ~~Export KML/GPX/CSV~~ ✅ (share links todo)
 4. ~~GPS track recording + convert-track-to-area~~ ✅ (foreground; background = v2/Capacitor)
-5. **Coordinate readout/search** (DD/DMS/UTM, then MGRS) + units toggle.
+5. ~~Coordinate readout/search (DD/DMS/UTM/MGRS)~~ ✅ — units toggle still todo
 6. **Navigate-to-placemark** + compass/orientation modes.
 7. **Geotagged photos**, **attribute fields**, **fire-ops symbol set**.
 8. **Geofences** (feature → layer → boundary).
