@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { Position } from 'geojson'
 import { bearingDeg, centroidOf } from '../lib/geo'
 import { haversineMeters } from '../lib/measure'
+import { positionError, subscribePosition } from '../lib/position'
 import type { UserFeature } from '../lib/features'
 
 export interface NavState {
@@ -18,7 +19,7 @@ export function navTargetPosition(feature: UserFeature): Position {
     : centroidOf(feature.coordinates as Position[])
 }
 
-/** Watches GPS while a target is set; returns live distance/bearing/ETA. */
+/** Follows the shared GPS while a target is set; returns live distance/bearing/ETA. */
 export function useNavigation(
   target: UserFeature | null,
   onNotify: (message: string, isError?: boolean) => void,
@@ -32,30 +33,12 @@ export function useNavigation(
       fixesRef.current = []
       return
     }
-    const addFix = (lng: number, lat: number) => {
-      const fix = { position: [lng, lat] as Position, time: Date.now() }
-      fixesRef.current = [...fixesRef.current.slice(-4), fix]
-      setPosition(fix.position)
-    }
-    let watchId: number | null = null
-    if (navigator.geolocation) {
-      watchId = navigator.geolocation.watchPosition(
-        (pos) => addFix(pos.coords.longitude, pos.coords.latitude),
-        (err) => onNotify(`GPS: ${err.message}`, true),
-        { enableHighAccuracy: true, maximumAge: 0 },
-      )
-    } else {
-      onNotify('GPS not available on this device', true)
-    }
-    if (import.meta.env.DEV) {
-      ;(window as unknown as Record<string, unknown>).__posFeed = addFix
-    }
-    return () => {
-      if (watchId !== null) navigator.geolocation?.clearWatch(watchId)
-      if (import.meta.env.DEV) {
-        delete (window as unknown as Record<string, unknown>).__posFeed
-      }
-    }
+    const err = positionError()
+    if (err) onNotify(`GPS: ${err}`, true)
+    return subscribePosition((pos) => {
+      fixesRef.current = [...fixesRef.current.slice(-4), { position: pos, time: Date.now() }]
+      setPosition(pos)
+    })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [target?.id])
 

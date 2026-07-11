@@ -16,6 +16,7 @@ import {
   renderSymbolImage,
   type UserFeature,
 } from '../lib/features'
+import { fenceShapes } from '../lib/fences'
 import {
   COORD_FORMATS,
   FORMAT_LABELS,
@@ -244,6 +245,7 @@ export default function MapView({
       loadedRef.current = true
       addLiveFireLayers(map)
       addUserFeatureLayers(map)
+      addFenceLayers(map)
       addTrackLayers(map)
       addNavLayers(map)
       addCoordMarkerLayer(map)
@@ -251,6 +253,9 @@ export default function MapView({
       syncOverlays(map, overlaysRef.current)
       setLiveFireData(map, liveFiresRef.current)
       setUserFeatureData(map, userFeaturesRef.current)
+      ;(map.getSource('fences') as maplibregl.GeoJSONSource | undefined)?.setData(
+        fenceShapes(userFeaturesRef.current),
+      )
     })
 
     // Tap priority: measuring > dropping a pin > editing your own features >
@@ -362,11 +367,13 @@ export default function MapView({
     setLiveFireData(map, liveFires)
   }, [liveFires])
 
-  // Push user features to the map.
+  // Push user features (and their armed geofence outlines) to the map.
   useEffect(() => {
     const map = mapRef.current
     if (!map || !loadedRef.current) return
     setUserFeatureData(map, userFeatures)
+    const fences = map.getSource('fences') as maplibregl.GeoJSONSource | undefined
+    fences?.setData(fenceShapes(userFeatures))
   }, [userFeatures])
 
   // Push the in-progress GPS track to the map.
@@ -675,6 +682,21 @@ function addUserFeatureLayers(map: MlMap) {
 function setUserFeatureData(map: MlMap, features: UserFeature[]) {
   const source = map.getSource('user-features') as maplibregl.GeoJSONSource | undefined
   source?.setData(featuresToGeoJSON(features))
+}
+
+function addFenceLayers(map: MlMap) {
+  map.addSource('fences', { type: 'geojson', data: EMPTY_FC })
+  map.addLayer({
+    id: 'fence-line',
+    type: 'line',
+    source: 'fences',
+    paint: {
+      'line-color': '#fbbf24',
+      'line-width': 2,
+      'line-dasharray': [3, 2],
+      'line-opacity': 0.9,
+    },
+  })
 }
 
 function addTrackLayers(map: MlMap) {

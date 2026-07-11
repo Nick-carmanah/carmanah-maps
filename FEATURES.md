@@ -51,8 +51,8 @@ Legend: ✅ done · 🟡 partial · ⬜ todo · ➕ ours (no Avenza equivalent)
 | Attribute schema management (custom fields) | Free/Pro | ✅ | Key/value fields per feature; exported as KML ExtendedData + CSV column. Per-layer schemas later |
 | Custom symbol sets | Pro | ✅ | Built-in fire-ops set: DP, helispot, safety zone, staging, water, medical, hazard, camp. User-imported sets later |
 | Customize symbols/colors per feature | Free | ✅ | Color swatches + symbol picker in edit sheet |
-| Geofences on features | Pro (unlimited) | ⬜ | Entry/exit alerts; escape-route trigger points |
-| Geofences on layers / map boundaries / global alerts | Pro | ⬜ | After feature geofences |
+| Geofences on features | Pro (unlimited) | ✅ | Per-feature toggle + radius; entry/exit toast, vibration, system notification; dashed outline on map |
+| Geofences on layers / map boundaries / global alerts | Pro | 🟡 | Feature fences unlimited; layer/boundary fences later |
 
 ## Sharing & export
 
@@ -86,6 +86,6 @@ Legend: ✅ done · 🟡 partial · ⬜ todo · ➕ ours (no Avenza equivalent)
 5. ~~Coordinate readout/search (DD/DMS/UTM/MGRS)~~ ✅ — units toggle still todo
 6. ~~Navigate-to-placemark~~ ✅ — device-compass / orientation-lock modes still todo (need real device)
 7. ~~Geotagged photos, attribute fields, fire-ops symbol set~~ ✅
-8. **Geofences** (feature → layer → boundary).
+8. ~~Geofences on features~~ ✅ (layer/boundary fences later)
 9. **Satellite basemap**, **feature search**, **folders**.
 10. **GeoTIFF/shapefile import**, **shapefile export**, GeoPDF via server (v1).

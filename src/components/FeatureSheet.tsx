@@ -6,6 +6,7 @@ import {
   KIND_ICONS,
   type UserFeature,
 } from '../lib/features'
+import { DEFAULT_FENCE_RADIUS_M } from '../lib/fences'
 
 export interface PhotoThumb {
   id: string
@@ -105,6 +106,40 @@ export default function FeatureSheet({
             ))}
           </div>
         )}
+
+        <div className="fence-row">
+          <label>
+            <input
+              type="checkbox"
+              checked={feature.geofence?.enabled ?? false}
+              onChange={(e) =>
+                update({
+                  geofence: {
+                    radiusM: feature.geofence?.radiusM ?? DEFAULT_FENCE_RADIUS_M,
+                    enabled: e.target.checked,
+                  },
+                })
+              }
+            />
+            Geofence alerts (entry/exit)
+          </label>
+          {feature.kind !== 'area' && feature.geofence?.enabled && (
+            <span className="fence-radius">
+              <input
+                type="number"
+                min={50}
+                step={50}
+                value={feature.geofence?.radiusM ?? DEFAULT_FENCE_RADIUS_M}
+                onChange={(e) =>
+                  update({
+                    geofence: { enabled: true, radiusM: Math.max(50, Number(e.target.value)) },
+                  })
+                }
+              />
+              m radius
+            </span>
+          )}
+        </div>
 
         <div className="attr-section">
           {attributes.map((a, i) => (

@@ -10,6 +10,7 @@ import { fetchLiveFires, type LiveFires } from './lib/livefires'
 import { formatArea, formatDistance, pathLengthMeters, ringAreaSqMeters } from './lib/measure'
 import { formatDuration, trackStats, useTrackRecorder } from './hooks/useTrackRecorder'
 import { navTargetPosition, useNavigation } from './hooks/useNavigation'
+import { useGeofences } from './hooks/useGeofences'
 import {
   deleteFeature,
   deleteOverlay,
@@ -56,6 +57,7 @@ export default function App() {
   const [photos, setPhotos] = useState<PhotoThumb[]>([])
   const navTarget = userFeatures.find((f) => f.id === navTargetId) ?? null
   const nav = useNavigation(navTarget, (m, e) => showToastRef.current(m, e))
+  useGeofences(userFeatures, (m) => showToastRef.current(`⚠️ ${m}`, true))
   const [toast, setToast] = useState<Toast | null>(null)
   const [focusRequest, setFocusRequest] = useState<{ id: string; nonce: number } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)

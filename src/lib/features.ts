@@ -14,6 +14,8 @@ export interface UserFeature {
   symbol?: string
   /** Custom attribute fields, in display order. */
   attributes?: { k: string; v: string }[]
+  /** Entry/exit alerting. Radius applies to pin and line fences. */
+  geofence?: { enabled: boolean; radiusM?: number }
   createdAt: number
   updatedAt: number
 }
