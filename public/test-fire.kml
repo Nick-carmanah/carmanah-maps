@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>K71234 - Test Fire (Lytton)</name>
+    <Style id="perimeter">
+      <LineStyle><color>ff0000ff</color><width>3</width></LineStyle>
+      <PolyStyle><color>4d0000ff</color></PolyStyle>
+    </Style>
+    <Style id="helispot">
+      <IconStyle><color>ffff9900</color></IconStyle>
+    </Style>
+    <Placemark>
+      <name>Fire Perimeter - K71234</name>
+      <description>Estimated 412 ha. Status: Out of Control. Updated 2026-07-10 06:00 PDT</description>
+      <styleUrl>#perimeter</styleUrl>
+      <Polygon>
+        <outerBoundaryIs>
+          <LinearRing>
+            <coordinates>
+              -121.582,50.231,0 -121.561,50.238,0 -121.542,50.247,0 -121.528,50.243,0
+              -121.517,50.233,0 -121.520,50.219,0 -121.534,50.208,0 -121.556,50.203,0
+              -121.575,50.209,0 -121.586,50.220,0 -121.582,50.231,0
+            </coordinates>
+          </LinearRing>
+        </outerBoundaryIs>
+      </Polygon>
+    </Placemark>
+    <Placemark>
+      <name>DP-1</name>
+      <description>Drop point 1 - Hwy 12 pullout</description>
+      <Point><coordinates>-121.590,50.226,0</coordinates></Point>
+    </Placemark>
+    <Placemark>
+      <name>DP-2</name>
+      <description>Drop point 2 - Botanie Rd</description>
+      <Point><coordinates>-121.512,50.240,0</coordinates></Point>
+    </Placemark>
+    <Placemark>
+      <name>H-1 Helispot</name>
+      <description>Primary helispot - gravel bar</description>
+      <styleUrl>#helispot</styleUrl>
+      <Point><coordinates>-121.548,50.196,0</coordinates></Point>
+    </Placemark>
+    <Placemark>
+      <name>Division A/B Break</name>
+      <styleUrl>#perimeter</styleUrl>
+      <LineString>
+        <coordinates>-121.552,50.250,0 -121.549,50.225,0 -121.546,50.200,0</coordinates>
+      </LineString>
+    </Placemark>
+  </Document>
+</kml>
