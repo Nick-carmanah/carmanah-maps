@@ -7,6 +7,7 @@ import {
   type UserFeature,
 } from '../lib/features'
 import { DEFAULT_FENCE_RADIUS_M } from '../lib/fences'
+import { buildConventionName, TRACK_TYPES } from '../lib/naming'
 
 export interface PhotoThumb {
   id: string
@@ -80,6 +81,22 @@ export default function FeatureSheet({
           placeholder="Notes (crew, hazards, status…)"
           rows={2}
         />
+
+        {feature.kind === 'line' && (
+          <div className="track-type-row">
+            {TRACK_TYPES.map((t) => (
+              <button
+                key={t.what}
+                className="btn small"
+                onClick={() => update({ color: t.color, name: buildConventionName(t.what) })}
+                title={`${t.label} — sets color and name`}
+              >
+                <span className="type-dot" style={{ background: t.color }} />
+                {t.label}
+              </button>
+            ))}
+          </div>
+        )}
 
         {feature.kind === 'pin' && (
           <div className="symbol-row">

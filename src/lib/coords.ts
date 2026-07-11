@@ -1,12 +1,13 @@
 import * as mgrs from 'mgrs'
 import type { Position } from 'geojson'
 
-export type CoordFormat = 'dd' | 'dms' | 'utm' | 'mgrs'
+export type CoordFormat = 'dd' | 'ddm' | 'dms' | 'utm' | 'mgrs'
 
-export const COORD_FORMATS: CoordFormat[] = ['dd', 'dms', 'utm', 'mgrs']
+export const COORD_FORMATS: CoordFormat[] = ['dd', 'ddm', 'dms', 'utm', 'mgrs']
 
 export const FORMAT_LABELS: Record<CoordFormat, string> = {
   dd: 'DD',
+  ddm: 'DDM',
   dms: 'DMS',
   utm: 'UTM',
   mgrs: 'MGRS',
@@ -133,6 +134,15 @@ export function fromUtm(utm: Utm): Position {
 
 // ---- Formatting ----
 
+/** Degree decimal minutes — the BCWS field standard. */
+function toDdm(value: number, isLat: boolean): string {
+  const hemi = isLat ? (value >= 0 ? 'N' : 'S') : value >= 0 ? 'E' : 'W'
+  const abs = Math.abs(value)
+  const d = Math.floor(abs)
+  const min = (abs - d) * 60
+  return `${d}°${min.toFixed(3).padStart(6, '0')}'${hemi}`
+}
+
 function toDms(value: number, isLat: boolean): string {
   const hemi = isLat ? (value >= 0 ? 'N' : 'S') : value >= 0 ? 'E' : 'W'
   const abs = Math.abs(value)
@@ -147,6 +157,8 @@ export function formatCoord([lng, lat]: Position, fmt: CoordFormat): string {
   switch (fmt) {
     case 'dd':
       return `${lat.toFixed(5)}, ${lng.toFixed(5)}`
+    case 'ddm':
+      return `${toDdm(lat, true)} ${toDdm(lng, false)}`
     case 'dms':
       return `${toDms(lat, true)} ${toDms(lng, false)}`
     case 'utm': {

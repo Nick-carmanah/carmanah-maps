@@ -67,8 +67,9 @@ export function renderSymbolImage(key: string): ImageData {
 }
 
 export const FEATURE_COLORS = [
-  '#e11d1d', // red
-  '#f97316', // orange
+  '#e11d1d', // red — fire edge
+  '#111111', // black — machine guard
+  '#f97316', // orange — general track
   '#facc15', // yellow
   '#22c55e', // green
   '#3b82f6', // blue

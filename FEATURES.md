@@ -77,6 +77,27 @@ Legend: ✅ done · 🟡 partial · ⬜ todo · ➕ ours (no Avenza equivalent)
 | Radio repeater overlay from Carmanah app | ⬜ | v1.5 |
 | Photos/placemarks into Carmanah forms | ⬜ | v1.5 |
 
+## From the Avenza workshop materials (2026-07-11)
+
+Nick's BCWS "Advanced Avenza Workshop" (lesson plan + deck) — insights adopted
+or queued. Core thesis: Avenza is a *communication* tool; its failures are all
+collaboration failures (uncoordinated per-person maps, "Track 657" naming,
+layer/link confusion, OneDrive as a makeshift hub).
+
+| Insight | Status |
+|---|---|
+| DDM (degree decimal minutes) is the BCWS field standard | ✅ Added to formats + search |
+| Naming convention What_When_Where_Who, GIS-safe (no spaces/punctuation) | ✅ Profile (callsign + fire number) auto-names new features, e.g. Edge_JUL11_K61067_2P14 |
+| Track colors: red = fire edge, black = machine guard, orange = general | ✅ One-tap track types set color + name; black added to palette |
+| "North is up!" — orientation discipline | ⬜ North-lock toggle |
+| Slope estimate via rise-over-run for heavy equipment ops | ⬜ We have DEM — auto slope/elevation profile along any drawn line beats manual method |
+| Compass bearing deduction ("saw smoke, shoot bearing, draw line") | ⬜ Draw-line-by-bearing tool |
+| NWCG Fire Ops symbol set is the standard import | ⬜ Align our symbol set with NWCG glyphs |
+| Master/Day/Specialty layers; copy features into layers to share | ⬜ Layer/folder system with an "active day layer" for new features |
+| OneDrive/Teams as shared hub; "layer not linked to map" pain | ⬜ Solved properly by Carmanah account layer sync (v1.5) |
+| Geofences for airspace management / aviation safety | ✅ Already built |
+| Plot drone photos to reconstruct a track | ⬜ EXIF-GPS photo import |
+
 ## Suggested build order (v1 parity push)
 
 1. ~~Placemarks~~ ✅

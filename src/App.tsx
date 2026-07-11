@@ -9,6 +9,7 @@ import { fetchKmlFromUrl, parseImportedFile, type ParsedKml } from './lib/kml'
 import { fetchLiveFires, type LiveFires } from './lib/livefires'
 import { formatArea, formatDistance, pathLengthMeters, ringAreaSqMeters } from './lib/measure'
 import { formatDuration, trackStats, useTrackRecorder } from './hooks/useTrackRecorder'
+import { conventionActive, buildConventionName, getProfile, saveProfile } from './lib/naming'
 import { navTargetPosition, useNavigation } from './hooks/useNavigation'
 import { useGeofences } from './hooks/useGeofences'
 import {
@@ -58,6 +59,8 @@ export default function App() {
   const showToastRef = useRef<(m: string, e?: boolean) => void>(() => {})
   const [navTargetId, setNavTargetId] = useState<string | null>(null)
   const [photos, setPhotos] = useState<PhotoThumb[]>([])
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [profile, setProfile] = useState(getProfile)
   const navTarget = userFeatures.find((f) => f.id === navTargetId) ?? null
   const nav = useNavigation(navTarget, (m, e) => showToastRef.current(m, e))
   useGeofences(userFeatures, (m) => showToastRef.current(`⚠️ ${m}`, true))
@@ -206,11 +209,19 @@ export default function App() {
       opts: { label?: string; color?: string } = {},
     ) => {
       const label = opts.label ?? { pin: 'Pin', line: 'Line', area: 'Area' }[kind]
-      const count = userFeatures.filter((f) => f.name.startsWith(label)).length + 1
+      // Workshop naming convention (What_When_Where_Who) once a profile is set.
+      let name: string
+      if (conventionActive()) {
+        const base = buildConventionName(label)
+        const clashes = userFeatures.filter((f) => f.name.startsWith(base)).length
+        name = clashes ? `${base}_${clashes + 1}` : base
+      } else {
+        name = `${label} ${userFeatures.filter((f) => f.name.startsWith(label)).length + 1}`
+      }
       const feature: UserFeature = {
         id: crypto.randomUUID(),
         kind,
-        name: `${label} ${count}`,
+        name,
         notes,
         color: opts.color ?? FEATURE_COLORS[0],
         coordinates,
@@ -400,6 +411,13 @@ export default function App() {
         <button className="btn primary" onClick={() => setScanning(true)}>
           Scan fire QR
         </button>
+        <button
+          className="btn"
+          onClick={() => setSettingsOpen(true)}
+          title="Profile & naming convention"
+        >
+          ⚙
+        </button>
         <input
           ref={fileInputRef}
           type="file"
@@ -537,6 +555,49 @@ export default function App() {
           <button className="btn" onClick={() => setNavTargetId(null)}>
             End
           </button>
+        </div>
+      )}
+
+      {settingsOpen && (
+        <div className="feature-sheet settings-sheet">
+          <div className="sheet-header">
+            <span className="kind-icon">⚙</span>
+            <span className="sheet-title">Profile</span>
+            <button className="btn" onClick={() => setSettingsOpen(false)}>
+              Done
+            </button>
+          </div>
+          <div className="settings-fields">
+            <label>
+              Callsign
+              <input
+                value={profile.callsign}
+                placeholder="e.g. 2P14"
+                onChange={(e) => {
+                  const next = { ...profile, callsign: e.target.value.trim() }
+                  setProfile(next)
+                  saveProfile(next)
+                }}
+              />
+            </label>
+            <label>
+              Fire number
+              <input
+                value={profile.fireNumber}
+                placeholder="e.g. K61067"
+                onChange={(e) => {
+                  const next = { ...profile, fireNumber: e.target.value.trim() }
+                  setProfile(next)
+                  saveProfile(next)
+                }}
+              />
+            </label>
+          </div>
+          <div className="settings-hint">
+            {conventionActive()
+              ? `New features will be auto-named like: ${buildConventionName('Edge')}`
+              : 'Set a callsign and/or fire number to auto-name features the BCWS way (What_When_Where_Who).'}
+          </div>
         </div>
       )}
 
