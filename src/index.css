@@ -83,31 +83,172 @@ html, body, #root {
   background: #9a3412;
 }
 
-/* ---- Layer panel ---- */
+/* ---- FABs & sheets ---- */
+.fab {
+  position: absolute;
+  bottom: max(16px, env(safe-area-inset-bottom));
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  border: 1px solid #3a3a3a;
+  background: rgba(26, 26, 26, 0.94);
+  backdrop-filter: blur(8px);
+  color: #eee;
+  font-size: 22px;
+  cursor: pointer;
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+}
+
+.fab:active {
+  transform: scale(0.94);
+}
+
+.fab-left {
+  left: 12px;
+}
+
+.fab-right {
+  right: 12px;
+}
+
+.sheet-wrap {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+}
+
+.sheet-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.tool-sheet {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: rgba(26, 26, 26, 0.98);
+  border-top: 1px solid #3a3a3a;
+  border-radius: 14px 14px 0 0;
+  padding: 10px 12px calc(12px + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tool-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  background: #232323;
+  border: 1px solid #333;
+  border-radius: 10px;
+  color: #eee;
+  font-size: 15px;
+  padding: 13px 16px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.tool-row:active {
+  background: #303030;
+}
+
+.tool-icon {
+  width: 24px;
+  text-align: center;
+}
+
+.sheet-close-btn {
+  margin-top: 4px;
+  justify-content: center;
+  text-align: center;
+  display: block;
+}
+
+/* ---- Layer panel (bottom sheet) ---- */
 .layer-panel {
   position: absolute;
-  top: 10px;
-  left: 10px;
-  z-index: 5;
-  background: rgba(26, 26, 26, 0.92);
-  backdrop-filter: blur(8px);
-  border: 1px solid #3a3a3a;
-  border-radius: 10px;
-  max-width: min(300px, calc(100vw - 70px));
-  max-height: 50vh;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 31;
+  background: rgba(26, 26, 26, 0.98);
+  border-top: 1px solid #3a3a3a;
+  border-radius: 14px 14px 0 0;
+  max-height: 72vh;
   overflow-y: auto;
   font-size: 13px;
+  padding-bottom: env(safe-area-inset-bottom);
 }
 
 .layer-panel .panel-header {
-  padding: 10px 12px;
+  padding: 12px 14px;
   font-weight: 600;
+  font-size: 15px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  position: sticky;
+  top: 0;
+  background: rgba(26, 26, 26, 0.98);
+  z-index: 1;
+}
+
+.panel-close {
+  background: #2a2a2a;
+  border: 1px solid #444;
+  border-radius: 50%;
+  width: 28px;
+  height: 28px;
+  color: #bbb;
   cursor: pointer;
-  user-select: none;
+}
+
+.basemap-choice {
+  display: flex;
+  gap: 6px;
+}
+
+.basemap-choice button {
+  background: #2a2a2a;
+  border: 1px solid #444;
+  border-radius: 8px;
+  color: #bbb;
+  font-size: 12px;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+
+.basemap-choice button.selected {
+  border-color: #facc15;
+  color: #fff;
+  background: #3a3320;
+}
+
+.pin-chip {
+  position: absolute;
+  bottom: 84px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(26, 26, 26, 0.92);
+  backdrop-filter: blur(8px);
+  border: 1px solid #3a3a3a;
+  border-radius: 10px;
+  padding: 8px 12px;
+  z-index: 7;
+  font-size: 13px;
+  white-space: nowrap;
 }
 
 .layer-panel .layer-row {
@@ -523,8 +664,8 @@ html, body, #root {
 /* ---- Save offline button ---- */
 .offline-btn {
   position: absolute;
-  bottom: 40px;
-  right: 10px;
+  bottom: max(84px, calc(env(safe-area-inset-bottom) + 68px));
+  right: 12px;
   z-index: 5;
   background: rgba(26, 26, 26, 0.92);
   backdrop-filter: blur(8px);
@@ -537,7 +678,7 @@ html, body, #root {
 /* ---- Measure chip ---- */
 .measure-chip {
   position: absolute;
-  bottom: 40px;
+  bottom: 84px;
   left: 50%;
   transform: translateX(-50%);
   display: flex;
@@ -656,15 +797,6 @@ html, body, #root {
   font-size: 11px;
 }
 
-.basemap-btn {
-  position: absolute;
-  bottom: 82px;
-  right: 10px;
-  z-index: 5;
-  background: rgba(26, 26, 26, 0.92);
-  backdrop-filter: blur(8px);
-}
-
 .center-crosshair {
   position: absolute;
   top: 50%;
@@ -751,7 +883,7 @@ html, body, #root {
 /* ---- Navigation chip ---- */
 .nav-chip {
   position: absolute;
-  bottom: 40px;
+  bottom: 84px;
   left: 50%;
   transform: translateX(-50%);
   display: flex;

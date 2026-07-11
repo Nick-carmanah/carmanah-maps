@@ -80,6 +80,12 @@ export default function App() {
   const [units, setUnitsState] = useState<Units>(getUnits)
   const [hiddenLayers, setHiddenLayers] = useState<Set<string>>(new Set())
   const [gridOn, setGridOn] = useState(() => localStorage.getItem('carmanah-grid') === '1')
+  const [toolsOpen, setToolsOpen] = useState(false)
+  const [layersOpen, setLayersOpen] = useState(false)
+  const [basemap, setBasemap] = useState<'streets' | 'satellite'>(
+    () => (localStorage.getItem('carmanah-basemap') as 'streets' | 'satellite') || 'streets',
+  )
+  const [searchNonce, setSearchNonce] = useState(0)
   const navTarget = userFeatures.find((f) => f.id === navTargetId) ?? null
   const nav = useNavigation(navTarget, (m, e) => showToastRef.current(m, e))
   useGeofences(userFeatures, (m) => showToastRef.current(`⚠️ ${m}`, true))
@@ -435,55 +441,8 @@ export default function App() {
         <h1>
           <span className="flame">🔥</span>Carmanah Maps
         </h1>
-        <button
-          className={`btn${track.phase === 'recording' ? ' active recording' : ''}`}
-          onClick={() => {
-            if (track.phase === 'recording') track.stop()
-            else if (track.phase === 'idle') {
-              setPinMode(false)
-              setMeasuring(false)
-              track.start()
-            }
-          }}
-          title="Record a GPS track"
-        >
-          {track.phase === 'recording' ? '⏹ Stop' : '⏺ Track'}
-        </button>
-        <button
-          className={`btn${pinMode ? ' active' : ''}`}
-          onClick={() => {
-            setMeasuring(false)
-            setPinMode((p) => !p)
-          }}
-          title="Tap the map to drop a pin"
-        >
-          📍 Pin
-        </button>
-        <button
-          className={`btn${measuring ? ' active' : ''}`}
-          onClick={() => {
-            setPinMode(false)
-            setMeasuring((m) => !m)
-          }}
-        >
-          Measure
-        </button>
-        <button
-          className="btn"
-          onClick={() => fileInputRef.current?.click()}
-          title="Import KML, KMZ, GPX, or zipped shapefile"
-        >
-          Import
-        </button>
         <button className="btn primary" onClick={() => setScanning(true)}>
           Scan fire QR
-        </button>
-        <button
-          className="btn"
-          onClick={() => setSettingsOpen(true)}
-          title="Profile & naming convention"
-        >
-          ⚙
         </button>
         <input
           ref={fileInputRef}
@@ -520,29 +479,140 @@ export default function App() {
           onEditFeature={setEditingId}
           onNotify={showToast}
           units={units}
+          basemap={basemap}
+          openSearchNonce={searchNonce}
         />
-        <LayerPanel
-          overlays={overlays}
-          hiddenIds={hiddenIds}
-          onToggle={handleToggle}
-          onRemove={handleRemove}
-          onFocus={focusOverlay}
-          liveEnabled={liveEnabled}
-          liveFetchedAt={liveData?.fetchedAt ?? null}
-          liveRefreshing={liveRefreshing}
-          onToggleLive={toggleLive}
-          onRefreshLive={refreshLiveFires}
-          livePerimetersEnabled={livePerimeters}
-          onToggleLivePerimeters={toggleLivePerimeters}
-          gridOn={gridOn}
-          onToggleGrid={handleToggleGrid}
-          userFeatures={userFeatures}
-          hiddenLayers={hiddenLayers}
-          onToggleLayer={handleToggleLayer}
-          onEditFeature={setEditingId}
-          onFocusFeature={focusOverlay}
-          onExport={handleExport}
-        />
+
+        <button
+          className="fab fab-left"
+          onClick={() => setToolsOpen(true)}
+          aria-label="Tools"
+          title="Tools"
+        >
+          🛠
+        </button>
+        <button
+          className="fab fab-right"
+          onClick={() => setLayersOpen(true)}
+          aria-label="Layers"
+          title="Layers"
+        >
+          🗂
+        </button>
+
+        {layersOpen && (
+          <div className="sheet-wrap">
+            <div className="sheet-backdrop" onClick={() => setLayersOpen(false)} />
+            <LayerPanel
+              overlays={overlays}
+              hiddenIds={hiddenIds}
+              onToggle={handleToggle}
+              onRemove={handleRemove}
+              onFocus={(id) => {
+                setLayersOpen(false)
+                focusOverlay(id)
+              }}
+              liveEnabled={liveEnabled}
+              liveFetchedAt={liveData?.fetchedAt ?? null}
+              liveRefreshing={liveRefreshing}
+              onToggleLive={toggleLive}
+              onRefreshLive={refreshLiveFires}
+              livePerimetersEnabled={livePerimeters}
+              onToggleLivePerimeters={toggleLivePerimeters}
+              gridOn={gridOn}
+              onToggleGrid={handleToggleGrid}
+              basemap={basemap}
+              onSetBasemap={(b) => {
+                setBasemap(b)
+                localStorage.setItem('carmanah-basemap', b)
+              }}
+              onClose={() => setLayersOpen(false)}
+              userFeatures={userFeatures}
+              hiddenLayers={hiddenLayers}
+              onToggleLayer={handleToggleLayer}
+              onEditFeature={(id) => {
+                setLayersOpen(false)
+                setEditingId(id)
+              }}
+              onFocusFeature={(id) => {
+                setLayersOpen(false)
+                focusOverlay(id)
+              }}
+              onExport={handleExport}
+            />
+          </div>
+        )}
+
+        {toolsOpen && (
+          <div className="sheet-wrap">
+            <div className="sheet-backdrop" onClick={() => setToolsOpen(false)} />
+            <div className="tool-sheet">
+              {(
+                [
+                  {
+                    icon: '📍',
+                    label: 'Drop a pin',
+                    action: () => {
+                      setMeasuring(false)
+                      setPinMode(true)
+                    },
+                  },
+                  {
+                    icon: '📐',
+                    label: 'Draw and measure',
+                    action: () => {
+                      setPinMode(false)
+                      setMeasuring(true)
+                    },
+                  },
+                  {
+                    icon: track.phase === 'recording' ? '⏹' : '⏺',
+                    label:
+                      track.phase === 'recording' ? 'Stop GPS track' : 'Record GPS track',
+                    action: () => {
+                      if (track.phase === 'recording') track.stop()
+                      else if (track.phase === 'idle') {
+                        setPinMode(false)
+                        setMeasuring(false)
+                        track.start()
+                      }
+                    },
+                  },
+                  {
+                    icon: '🧭',
+                    label: 'Find by coordinates or name',
+                    action: () => setSearchNonce((n) => n + 1),
+                  },
+                  {
+                    icon: '📂',
+                    label: 'Import KML, GPX, or shapefile',
+                    action: () => fileInputRef.current?.click(),
+                  },
+                  {
+                    icon: '⚙️',
+                    label: 'Profile and settings',
+                    action: () => setSettingsOpen(true),
+                  },
+                ] as const
+              ).map((tool) => (
+                <button
+                  key={tool.label}
+                  className="tool-row"
+                  onClick={() => {
+                    setToolsOpen(false)
+                    tool.action()
+                  }}
+                >
+                  <span className="tool-icon">{tool.icon}</span>
+                  {tool.label}
+                </button>
+              ))}
+              <button className="btn sheet-close-btn" onClick={() => setToolsOpen(false)}>
+                Close
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {scanning && (
@@ -564,6 +634,11 @@ export default function App() {
                 {stats.avgSpeedKmh > 0 && ` · ${formatSpeed(stats.avgSpeedKmh)}`}
                 {stats.elevGainM != null && ` · +${Math.round(stats.elevGainM)} m`}
               </span>
+              {track.phase === 'recording' && (
+                <button className="btn" onClick={track.stop}>
+                  ⏹ Stop
+                </button>
+              )}
               {track.phase === 'review' && (
                 <>
                   <button className="btn" onClick={() => handleSaveTrack('line')}>
@@ -605,6 +680,15 @@ export default function App() {
             />
           ) : null
         })()}
+
+      {pinMode && (
+        <div className="pin-chip">
+          <span>Tap the map to drop a pin</span>
+          <button className="btn" onClick={() => setPinMode(false)}>
+            Cancel
+          </button>
+        </div>
+      )}
 
       {navTarget && (
         <div className="nav-chip">

@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import type { Overlay } from '../lib/store'
 import { formatAge } from '../lib/livefires'
 import { featureLayer, featureStat, KIND_ICONS, type UserFeature } from '../lib/features'
@@ -20,6 +19,9 @@ interface LayerPanelProps {
   onToggleLivePerimeters: () => void
   gridOn: boolean
   onToggleGrid: () => void
+  basemap: 'streets' | 'satellite'
+  onSetBasemap: (b: 'streets' | 'satellite') => void
+  onClose: () => void
   userFeatures: UserFeature[]
   hiddenLayers: Set<string>
   onToggleLayer: (name: string) => void
@@ -43,6 +45,9 @@ export default function LayerPanel({
   onToggleLivePerimeters,
   gridOn,
   onToggleGrid,
+  basemap,
+  onSetBasemap,
+  onClose,
   userFeatures,
   hiddenLayers,
   onToggleLayer,
@@ -50,7 +55,7 @@ export default function LayerPanel({
   onFocusFeature,
   onExport,
 }: LayerPanelProps) {
-  const [collapsed, setCollapsed] = useState(false)
+  const collapsed = false
 
   const layers = new Map<string, UserFeature[]>()
   for (const f of userFeatures) {
@@ -61,9 +66,25 @@ export default function LayerPanel({
 
   return (
     <div className="layer-panel">
-      <div className="panel-header" onClick={() => setCollapsed((c) => !c)}>
-        <span>Layers ({overlays.length})</span>
-        <span>{collapsed ? '▸' : '▾'}</span>
+      <div className="panel-header">
+        <span>Layers</span>
+        <button className="panel-close" onClick={onClose} aria-label="Close layers">
+          ✕
+        </button>
+      </div>
+      <div className="layer-row">
+        <span className="name">Basemap</span>
+        <span className="basemap-choice">
+          {(['streets', 'satellite'] as const).map((b) => (
+            <button
+              key={b}
+              className={basemap === b ? 'selected' : ''}
+              onClick={() => onSetBasemap(b)}
+            >
+              {b === 'streets' ? '🗺 Streets' : '🛰 Satellite'}
+            </button>
+          ))}
+        </span>
       </div>
       {!collapsed && (
         <div className="layer-row">

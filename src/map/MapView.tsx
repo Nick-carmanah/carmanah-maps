@@ -109,6 +109,9 @@ interface MapViewProps {
   onNotify: (message: string, isError?: boolean) => void
   /** Measurement units — also re-renders measurement readouts on change. */
   units: Units
+  basemap: 'streets' | 'satellite'
+  /** Bump to open the coordinate search input (from the tools sheet). */
+  openSearchNonce: number
 }
 
 export default function MapView({
@@ -130,6 +133,8 @@ export default function MapView({
   onEditFeature,
   onNotify,
   units,
+  basemap,
+  openSearchNonce,
 }: MapViewProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<MlMap | null>(null)
@@ -157,6 +162,8 @@ export default function MapView({
   hiddenLayersRef.current = hiddenLayers
   const showGridRef = useRef(showGrid)
   showGridRef.current = showGrid
+  const basemapRef = useRef(basemap)
+  basemapRef.current = basemap
   const pinModeRef = useRef(pinMode)
   pinModeRef.current = pinMode
   const onDropPinRef = useRef(onDropPin)
@@ -170,10 +177,7 @@ export default function MapView({
   const [packEstimate, setPackEstimate] = useState<number | null>(null)
   const estimateTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
-  // Basemap toggle (streets ↔ satellite)
-  const [basemap, setBasemap] = useState<'streets' | 'satellite'>(
-    () => (localStorage.getItem('carmanah-basemap') as 'streets' | 'satellite') || 'streets',
-  )
+  // Basemap (streets ↔ satellite) — chosen in the layers sheet.
   useEffect(() => {
     const map = mapRef.current
     if (!map || !loadedRef.current) return
@@ -183,8 +187,12 @@ export default function MapView({
       'visibility',
       basemap === 'satellite' ? 'visible' : 'none',
     )
-    localStorage.setItem('carmanah-basemap', basemap)
   }, [basemap])
+
+  // Tools sheet → "Find by coordinates" opens the search pill.
+  useEffect(() => {
+    if (openSearchNonce > 0) setSearchOpen(true)
+  }, [openSearchNonce])
 
   // Coordinate readout & universal search
   // DDM default — the BCWS field standard.
@@ -379,6 +387,10 @@ export default function MapView({
       if (!showLivePerimetersRef.current) {
         map.setLayoutProperty('live-perim-fill', 'visibility', 'none')
         map.setLayoutProperty('live-perim-line', 'visibility', 'none')
+      }
+      if (basemapRef.current === 'satellite') {
+        map.setLayoutProperty('osm', 'visibility', 'none')
+        map.setLayoutProperty('satellite', 'visibility', 'visible')
       }
       setUserFeatureData(map, userFeaturesRef.current, hiddenLayersRef.current)
       ;(map.getSource('fences') as maplibregl.GeoJSONSource | undefined)?.setData(
@@ -625,13 +637,6 @@ export default function MapView({
         </div>
       )}
       <div className="center-crosshair" aria-hidden />
-      <button
-        className="btn basemap-btn"
-        onClick={() => setBasemap((b) => (b === 'streets' ? 'satellite' : 'streets'))}
-        title="Toggle satellite imagery"
-      >
-        {basemap === 'streets' ? '🛰 Satellite' : '🗺 Streets'}
-      </button>
       <button
         className="btn offline-btn"
         onClick={saveOffline}
