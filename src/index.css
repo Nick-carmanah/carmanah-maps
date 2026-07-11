@@ -207,6 +207,133 @@ html, body, #root {
   gap: 10px;
 }
 
+.feature-sheet .sheet-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 45vh;
+  overflow-y: auto;
+}
+
+.symbol-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.symbol-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  background: #2a2a2a;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.symbol-btn.selected {
+  border-color: #fff;
+}
+
+.attr-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.attr-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.attr-row input {
+  flex: 1;
+  min-width: 0;
+  background: #2a2a2a;
+  border: 1px solid #444;
+  border-radius: 6px;
+  color: #eee;
+  font-size: 12px;
+  padding: 6px 8px;
+}
+
+.attr-row input:first-child {
+  flex: 0 0 32%;
+}
+
+.attr-row button {
+  background: none;
+  border: none;
+  color: #888;
+  cursor: pointer;
+}
+
+.btn.small {
+  padding: 5px 9px;
+  font-size: 12px;
+  align-self: flex-start;
+}
+
+.photo-strip {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.photo-thumb {
+  position: relative;
+  display: inline-block;
+}
+
+.photo-thumb img {
+  width: 56px;
+  height: 56px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid #444;
+  cursor: pointer;
+  display: block;
+}
+
+.photo-thumb button {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: none;
+  background: #b91c1c;
+  color: #fff;
+  font-size: 10px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.photo-viewer {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.9);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: zoom-out;
+}
+
+.photo-viewer img {
+  max-width: 95vw;
+  max-height: 95vh;
+  object-fit: contain;
+}
+
 .feature-sheet .name-input {
   flex: 1;
   background: #2a2a2a;

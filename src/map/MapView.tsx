@@ -10,7 +10,12 @@ import {
   ringAreaSqMeters,
 } from '../lib/measure'
 import { STATUS_COLORS, STATUS_FALLBACK_COLOR, type LiveFires } from '../lib/livefires'
-import { featuresToGeoJSON, type UserFeature } from '../lib/features'
+import {
+  FIRE_SYMBOLS,
+  featuresToGeoJSON,
+  renderSymbolImage,
+  type UserFeature,
+} from '../lib/features'
 import {
   COORD_FORMATS,
   FORMAT_LABELS,
@@ -592,6 +597,13 @@ function liveFirePopupContent(props: Record<string, unknown>): {
 }
 
 function addUserFeatureLayers(map: MlMap) {
+  // Register the built-in fire-ops symbol set as map images.
+  for (const key of Object.keys(FIRE_SYMBOLS)) {
+    if (!map.hasImage(`sym-${key}`)) {
+      map.addImage(`sym-${key}`, renderSymbolImage(key), { pixelRatio: 2 })
+    }
+  }
+
   map.addSource('user-features', { type: 'geojson', data: EMPTY_FC })
   map.addLayer({
     id: 'uf-fill',
@@ -607,16 +619,37 @@ function addUserFeatureLayers(map: MlMap) {
     filter: ['in', ['geometry-type'], ['literal', ['Polygon', 'LineString']]],
     paint: { 'line-color': ['get', 'color'], 'line-width': 3 },
   })
+  // Plain dot for pins without a symbol…
   map.addLayer({
     id: 'uf-pts',
     type: 'circle',
     source: 'user-features',
-    filter: ['==', ['geometry-type'], 'Point'],
+    filter: [
+      'all',
+      ['==', ['geometry-type'], 'Point'],
+      ['==', ['coalesce', ['get', 'symbol'], ''], ''],
+    ],
     paint: {
       'circle-radius': 7,
       'circle-color': ['get', 'color'],
       'circle-stroke-width': 2,
       'circle-stroke-color': '#1a1a1a',
+    },
+  })
+  // …fire-ops symbol icon for pins that have one.
+  map.addLayer({
+    id: 'uf-sym',
+    type: 'symbol',
+    source: 'user-features',
+    filter: [
+      'all',
+      ['==', ['geometry-type'], 'Point'],
+      ['!=', ['coalesce', ['get', 'symbol'], ''], ''],
+    ],
+    layout: {
+      'icon-image': ['concat', 'sym-', ['get', 'symbol']],
+      'icon-size': 1,
+      'icon-allow-overlap': true,
     },
   })
   map.addLayer({

@@ -10,8 +10,58 @@ export interface UserFeature {
   color: string
   /** Pin: single position. Line/area: vertex list (area ring is unclosed). */
   coordinates: Position | Position[]
+  /** Fire-ops symbol key (pins only); empty/undefined = plain dot. */
+  symbol?: string
+  /** Custom attribute fields, in display order. */
+  attributes?: { k: string; v: string }[]
   createdAt: number
   updatedAt: number
+}
+
+/** Built-in fire-ops symbol set (Avenza Pro makes you import these). */
+export const FIRE_SYMBOLS: Record<
+  string,
+  { label: string; color: string; text: string; shape: 'circle' | 'triangle' }
+> = {
+  'drop-point': { label: 'Drop point', color: '#111827', text: 'DP', shape: 'circle' },
+  helispot: { label: 'Helispot', color: '#1d4ed8', text: 'H', shape: 'circle' },
+  'safety-zone': { label: 'Safety zone', color: '#15803d', text: 'SZ', shape: 'circle' },
+  staging: { label: 'Staging', color: '#7c3aed', text: 'S', shape: 'circle' },
+  water: { label: 'Water source', color: '#0369a1', text: 'W', shape: 'circle' },
+  medical: { label: 'Medical', color: '#b91c1c', text: '+', shape: 'circle' },
+  hazard: { label: 'Hazard', color: '#ca8a04', text: '!', shape: 'triangle' },
+  camp: { label: 'Camp', color: '#78350f', text: 'C', shape: 'circle' },
+}
+
+/** Rasterize a symbol for maplibre addImage (drawn at 2x for retina). */
+export function renderSymbolImage(key: string): ImageData {
+  const spec = FIRE_SYMBOLS[key]
+  const size = 48
+  const canvas = document.createElement('canvas')
+  canvas.width = size
+  canvas.height = size
+  const ctx = canvas.getContext('2d')!
+  ctx.lineWidth = 3
+  ctx.strokeStyle = '#ffffff'
+  ctx.fillStyle = spec.color
+  if (spec.shape === 'triangle') {
+    ctx.beginPath()
+    ctx.moveTo(size / 2, 4)
+    ctx.lineTo(size - 4, size - 6)
+    ctx.lineTo(4, size - 6)
+    ctx.closePath()
+  } else {
+    ctx.beginPath()
+    ctx.arc(size / 2, size / 2, size / 2 - 4, 0, Math.PI * 2)
+  }
+  ctx.fill()
+  ctx.stroke()
+  ctx.fillStyle = '#ffffff'
+  ctx.font = `bold ${spec.text.length > 1 ? 18 : 24}px -apple-system, sans-serif`
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillText(spec.text, size / 2, spec.shape === 'triangle' ? size * 0.62 : size / 2 + 1)
+  return ctx.getImageData(0, 0, size, size)
 }
 
 export const FEATURE_COLORS = [
@@ -46,7 +96,14 @@ export function featuresToGeoJSON(features: UserFeature[]): FeatureCollection {
     type: 'FeatureCollection',
     features: features.map((f) => ({
       type: 'Feature',
-      properties: { id: f.id, kind: f.kind, name: f.name, notes: f.notes, color: f.color },
+      properties: {
+        id: f.id,
+        kind: f.kind,
+        name: f.name,
+        notes: f.notes,
+        color: f.color,
+        symbol: f.symbol ?? '',
+      },
       geometry: featureGeometry(f),
     })),
   }

@@ -25,15 +25,51 @@ interface CarmanahDB extends DBSchema {
     key: string
     value: UserFeature
   }
+  // Photos attached to user features.
+  photos: {
+    key: string
+    value: FeaturePhoto
+    indexes: { byFeature: string }
+  }
 }
 
-const dbPromise = openDB<CarmanahDB>('carmanah-maps', 3, {
+export interface FeaturePhoto {
+  id: string
+  featureId: string
+  blob: Blob
+  createdAt: number
+}
+
+const dbPromise = openDB<CarmanahDB>('carmanah-maps', 4, {
   upgrade(db, oldVersion) {
     if (oldVersion < 1) db.createObjectStore('overlays', { keyPath: 'id' })
     if (oldVersion < 2) db.createObjectStore('kv')
     if (oldVersion < 3) db.createObjectStore('features', { keyPath: 'id' })
+    if (oldVersion < 4) {
+      const photos = db.createObjectStore('photos', { keyPath: 'id' })
+      photos.createIndex('byFeature', 'featureId')
+    }
   },
 })
+
+export async function listPhotos(featureId: string): Promise<FeaturePhoto[]> {
+  const all = await (await dbPromise).getAllFromIndex('photos', 'byFeature', featureId)
+  return all.sort((a, b) => a.createdAt - b.createdAt)
+}
+
+export async function savePhoto(photo: FeaturePhoto): Promise<void> {
+  await (await dbPromise).put('photos', photo)
+}
+
+export async function deletePhoto(id: string): Promise<void> {
+  await (await dbPromise).delete('photos', id)
+}
+
+export async function deletePhotosForFeature(featureId: string): Promise<void> {
+  const photos = await listPhotos(featureId)
+  const db = await dbPromise
+  await Promise.all(photos.map((p) => db.delete('photos', p.id)))
+}
 
 export async function listFeatures(): Promise<UserFeature[]> {
   const all = await (await dbPromise).getAll('features')

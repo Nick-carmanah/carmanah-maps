@@ -20,6 +20,12 @@ export function featuresToKml(features: UserFeature[], docName = 'Carmanah Maps 
   const placemarks = features
     .map((f) => {
       const desc = f.notes ? `<description>${esc(f.notes)}</description>` : ''
+      const attrs = f.attributes?.filter((a) => a.k)
+      const extended = attrs?.length
+        ? `<ExtendedData>${attrs
+            .map((a) => `<Data name="${esc(a.k)}"><value>${esc(a.v)}</value></Data>`)
+            .join('')}</ExtendedData>`
+        : ''
       let style: string
       let geom: string
       if (f.kind === 'pin') {
@@ -33,7 +39,7 @@ export function featuresToKml(features: UserFeature[], docName = 'Carmanah Maps 
         style = `<Style><LineStyle><color>${kmlColor(f.color)}</color><width>3</width></LineStyle><PolyStyle><color>${kmlColor(f.color, '4d')}</color></PolyStyle></Style>`
         geom = `<Polygon><outerBoundaryIs><LinearRing><coordinates>${[...ring, ring[0]].map(coordStr).join(' ')}</coordinates></LinearRing></outerBoundaryIs></Polygon>`
       }
-      return `    <Placemark><name>${esc(f.name)}</name>${desc}${style}${geom}</Placemark>`
+      return `    <Placemark><name>${esc(f.name)}</name>${desc}${extended}${style}${geom}</Placemark>`
     })
     .join('\n')
 
@@ -76,6 +82,10 @@ export function featuresToCsv(features: UserFeature[]): string {
   const rows = features.map((f) => {
     const [lng, lat] =
       f.kind === 'pin' ? (f.coordinates as Position) : (f.coordinates as Position[])[0]
+    const attrs = (f.attributes ?? [])
+      .filter((a) => a.k)
+      .map((a) => `${a.k}=${a.v}`)
+      .join('; ')
     return [
       q(f.name),
       f.kind,
@@ -83,10 +93,13 @@ export function featuresToCsv(features: UserFeature[]): string {
       lng.toFixed(6),
       q(featureStat(f)),
       q(f.notes),
+      q(attrs),
       new Date(f.createdAt).toISOString(),
     ].join(',')
   })
-  return ['name,kind,latitude,longitude,measurement,notes,created', ...rows].join('\n')
+  return ['name,kind,latitude,longitude,measurement,notes,attributes,created', ...rows].join(
+    '\n',
+  )
 }
 
 /** Share via the OS share sheet when available, otherwise download. */

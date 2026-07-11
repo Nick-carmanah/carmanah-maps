@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import MapView from './map/MapView'
 import LayerPanel from './components/LayerPanel'
 import QrScanner from './components/QrScanner'
-import FeatureSheet from './components/FeatureSheet'
+import FeatureSheet, { type PhotoThumb } from './components/FeatureSheet'
 import { featuresToCsv, featuresToGpx, featuresToKml, shareOrDownload } from './lib/export'
 import { FEATURE_COLORS, type UserFeature } from './lib/features'
 import { fetchKmlFromUrl, parseKmlOrKmzFile, type ParsedKml } from './lib/kml'
@@ -13,12 +13,16 @@ import { navTargetPosition, useNavigation } from './hooks/useNavigation'
 import {
   deleteFeature,
   deleteOverlay,
+  deletePhoto,
+  deletePhotosForFeature,
   getCached,
   listFeatures,
   listOverlays,
+  listPhotos,
   requestPersistentStorage,
   saveFeature,
   saveOverlay,
+  savePhoto,
   setCached,
   type Overlay,
 } from './lib/store'
@@ -49,6 +53,7 @@ export default function App() {
   const track = useTrackRecorder((m, e) => showToastRef.current(m, e))
   const showToastRef = useRef<(m: string, e?: boolean) => void>(() => {})
   const [navTargetId, setNavTargetId] = useState<string | null>(null)
+  const [photos, setPhotos] = useState<PhotoThumb[]>([])
   const navTarget = userFeatures.find((f) => f.id === navTargetId) ?? null
   const nav = useNavigation(navTarget, (m, e) => showToastRef.current(m, e))
   const [toast, setToast] = useState<Toast | null>(null)
@@ -258,8 +263,45 @@ export default function App() {
 
   const handleFeatureDelete = useCallback(async (id: string) => {
     await deleteFeature(id)
+    await deletePhotosForFeature(id)
     setUserFeatures((prev) => prev.filter((f) => f.id !== id))
     setEditingId(null)
+  }, [])
+
+  // Load photo thumbnails when the edit sheet opens; revoke URLs on close.
+  useEffect(() => {
+    if (!editingId) {
+      setPhotos([])
+      return
+    }
+    let urls: string[] = []
+    listPhotos(editingId).then((stored) => {
+      urls = stored.map((p) => URL.createObjectURL(p.blob))
+      setPhotos(stored.map((p, i) => ({ id: p.id, url: urls[i] })))
+    })
+    return () => urls.forEach((u) => URL.revokeObjectURL(u))
+  }, [editingId])
+
+  const handleAddPhotos = useCallback(
+    async (files: FileList) => {
+      if (!editingId) return
+      for (const file of Array.from(files)) {
+        const photo = {
+          id: crypto.randomUUID(),
+          featureId: editingId,
+          blob: file,
+          createdAt: Date.now(),
+        }
+        await savePhoto(photo)
+        setPhotos((prev) => [...prev, { id: photo.id, url: URL.createObjectURL(file) }])
+      }
+    },
+    [editingId],
+  )
+
+  const handleDeletePhoto = useCallback(async (id: string) => {
+    await deletePhoto(id)
+    setPhotos((prev) => prev.filter((p) => p.id !== id))
   }, [])
 
   const handleExport = useCallback(
@@ -438,6 +480,9 @@ export default function App() {
           return feature ? (
             <FeatureSheet
               feature={feature}
+              photos={photos}
+              onAddPhotos={handleAddPhotos}
+              onDeletePhoto={handleDeletePhoto}
               onChange={handleFeatureChange}
               onDelete={handleFeatureDelete}
               onNavigate={(id) => {

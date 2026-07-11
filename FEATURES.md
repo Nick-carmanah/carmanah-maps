@@ -47,10 +47,10 @@ Legend: ✅ done · 🟡 partial · ⬜ todo · ➕ ours (no Avenza equivalent)
 | Placemarks (drop/edit/move/color/notes) | Free | ✅ | Pin button → tap map → edit sheet (name/notes/color); move pending |
 | Draw & save lines and areas | Free | ✅ | Measure sketch → Save line / Save area |
 | Measure distance & area | Free | ✅ | Geodesic km + hectares |
-| Geotagged photos on placemarks | Free | ⬜ | Camera/photo picker → IndexedDB blob, EXIF loc |
-| Attribute schema management (custom fields) | Free/Pro | ⬜ | Per-layer field definitions; fire-ops presets |
-| Custom symbol sets | Pro | ⬜ | Ship fire-ops symbols built-in (drop point, helispot, safety zone, escape route, guard, division break…) |
-| Customize symbols/colors per feature | Free | 🟡 | Color swatches done; symbol choice todo |
+| Geotagged photos on placemarks | Free | ✅ | Camera/photo picker per feature; thumbnails + full-screen viewer; blobs in IndexedDB |
+| Attribute schema management (custom fields) | Free/Pro | ✅ | Key/value fields per feature; exported as KML ExtendedData + CSV column. Per-layer schemas later |
+| Custom symbol sets | Pro | ✅ | Built-in fire-ops set: DP, helispot, safety zone, staging, water, medical, hazard, camp. User-imported sets later |
+| Customize symbols/colors per feature | Free | ✅ | Color swatches + symbol picker in edit sheet |
 | Geofences on features | Pro (unlimited) | ⬜ | Entry/exit alerts; escape-route trigger points |
 | Geofences on layers / map boundaries / global alerts | Pro | ⬜ | After feature geofences |
 
@@ -85,7 +85,7 @@ Legend: ✅ done · 🟡 partial · ⬜ todo · ➕ ours (no Avenza equivalent)
 4. ~~GPS track recording + convert-track-to-area~~ ✅ (foreground; background = v2/Capacitor)
 5. ~~Coordinate readout/search (DD/DMS/UTM/MGRS)~~ ✅ — units toggle still todo
 6. ~~Navigate-to-placemark~~ ✅ — device-compass / orientation-lock modes still todo (need real device)
-7. **Geotagged photos**, **attribute fields**, **fire-ops symbol set**.
+7. ~~Geotagged photos, attribute fields, fire-ops symbol set~~ ✅
 8. **Geofences** (feature → layer → boundary).
 9. **Satellite basemap**, **feature search**, **folders**.
 10. **GeoTIFF/shapefile import**, **shapefile export**, GeoPDF via server (v1).
