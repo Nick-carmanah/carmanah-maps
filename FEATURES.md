@@ -14,7 +14,7 @@ Legend: ✅ done · 🟡 partial · ⬜ todo · ➕ ours (no Avenza equivalent)
 | Basemap layers (satellite) | Plus | ✅ | Esri World Imagery toggle; hillshade stays on top; cached offline by SW |
 | 3D terrain / hillshade | — | ➕ ✅ | Beyond Avenza — terrain toggle + hillshade |
 | Map store / catalogue | Free | ⬜ | Our version: curated wildfire map-pack library (PMTiles regions) |
-| Organize maps in folders/collections | Free | ⬜ | Layer panel folders |
+| Organize maps in folders/collections | Free | ✅ | Auto-layers: features group by symbol/track type (Danger trees, Guards, Patrols…); manual override in sheet |
 | Import KML/KMZ | Free | ✅ | Button, drag-drop, QR scan, ?kml= deep link |
 | Import GPX | Free | ✅ | Same import path as KML |
 | Import GeoTIFF | Pro (unlimited) | ⬜ | Client-side: geotiff.js → canvas source; large files need server tiling |
@@ -49,7 +49,7 @@ Legend: ✅ done · 🟡 partial · ⬜ todo · ➕ ours (no Avenza equivalent)
 | Measure distance & area | Free | ✅ | Geodesic km + hectares |
 | Geotagged photos on placemarks | Free | ✅ | Camera/photo picker per feature; thumbnails + full-screen viewer; blobs in IndexedDB |
 | Attribute schema management (custom fields) | Free/Pro | ✅ | Key/value fields per feature; exported as KML ExtendedData + CSV column. Per-layer schemas later |
-| Custom symbol sets | Pro | ✅ | Built-in fire-ops set: DP, helispot, safety zone, staging, water, medical, hazard, camp. User-imported sets later |
+| Custom symbol sets | Pro | ✅ | Built-in fire-ops set: DP, helispot, safety zone, staging, water, pump, medical, hazard, danger tree, hotspot, structure, beehive, camp. User-imported sets later |
 | Customize symbols/colors per feature | Free | ✅ | Color swatches + symbol picker in edit sheet |
 | Geofences on features | Pro (unlimited) | ✅ | Per-feature toggle + radius; entry/exit toast, vibration, system notification; dashed outline on map |
 | Geofences on layers / map boundaries / global alerts | Pro | 🟡 | Feature fences unlimited; layer/boundary fences later |
@@ -71,6 +71,8 @@ Legend: ✅ done · 🟡 partial · ⬜ todo · ➕ ours (no Avenza equivalent)
 | Feature | Status | Notes |
 |---|---|---|
 | Live BCWS fire points + perimeters, status-colored, offline-cached w/ age | ✅ | |
+| UTM grid overlay (1 km / 10 km) with MGRS cell refs, toggleable | ➕ ✅ | International standard; BCWS lettered ops-grid labels possible if spec found |
+| Auto-layers by feature type + per-layer sharing | ➕ ✅ | The danger-tree-assessor → faller workflow |
 | QR scan → fire KML in one step | ✅ | Camera needs real-device test |
 | NASA FIRMS hotspots | ⬜ | v1.5 |
 | FWI / fire danger layers | ⬜ | v1.5 |
@@ -106,9 +108,9 @@ New gaps found, beyond what the parity tables already track:
 | Tutorial feature | Status |
 |---|---|
 | Multi-point routes + navigate *along* a route (compass follows route) | 🟡 We draw/save lines and navigate to a point; no route-following mode |
-| Selective export (pick individual features / "Custom" data) | ⬜ We export all My Data at once |
-| KMZ export with photos embedded | ⬜ Photos stay local; KML exports without them |
-| GPX track export with timestamps/velocity | ⬜ We drop per-point times when saving a track (store TrackPoints → add) |
+| Selective export (pick individual features / "Custom" data) | ✅ Per-layer Share (KMZ) + per-layer scoping of all formats |
+| KMZ export with photos embedded | ✅ KMZ bundles doc.kml + photos; per-layer or all data |
+| GPX track export with timestamps/velocity | ✅ Recorded tracks keep per-point times; exported as <time> |
 | GeoPackage import (Pro) | ⬜ gpkg via sql.js or server; low priority |
 | Import from web URL (in-app paste) | 🟡 ?kml= deep link exists; add a paste-URL option in Import |
 | "Import as geofences" option | ⬜ Auto-arm fences on imported features — great for div boundaries |

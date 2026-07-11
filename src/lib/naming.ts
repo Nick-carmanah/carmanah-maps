@@ -50,9 +50,12 @@ export function buildConventionName(what: string): string {
   return sanitizeGisName([what, datePart(), p.fireNumber, p.callsign].filter(Boolean).join('_'))
 }
 
-/** Workshop track types: semantic color + "What" prefix. */
+/** Workshop track types: semantic color + "What" prefix + auto-layer. */
 export const TRACK_TYPES = [
-  { what: 'Edge', label: 'Fire edge', color: '#e11d1d' },
-  { what: 'MGd', label: 'Guard', color: '#111111' },
-  { what: 'Track', label: 'General', color: '#f97316' },
+  { what: 'Edge', label: 'Fire edge', color: '#e11d1d', layer: 'Fire edge' },
+  { what: 'DGd', label: 'Dozer guard', color: '#111111', layer: 'Guards' },
+  { what: 'HGd', label: 'Hand guard', color: '#404040', layer: 'Guards' },
+  { what: 'Patrol', label: 'Patrol', color: '#3b82f6', layer: 'Patrols' },
+  { what: 'DTA', label: 'DT assessment', color: '#a855f7', layer: 'Danger trees' },
+  { what: 'Track', label: 'General', color: '#f97316', layer: 'Lines' },
 ] as const

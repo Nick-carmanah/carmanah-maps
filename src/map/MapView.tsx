@@ -13,11 +13,13 @@ import {
 import { STATUS_COLORS, STATUS_FALLBACK_COLOR, type LiveFires } from '../lib/livefires'
 import {
   FIRE_SYMBOLS,
+  featureLayer,
   featuresToGeoJSON,
   renderSymbolImage,
   type UserFeature,
 } from '../lib/features'
 import { fenceShapes } from '../lib/fences'
+import { buildGrid } from '../lib/grid'
 import {
   COORD_FORMATS,
   FORMAT_LABELS,
@@ -92,6 +94,10 @@ interface MapViewProps {
   /** Show/hide the BCWS perimeter polygons (points stay visible). */
   showLivePerimeters: boolean
   userFeatures: UserFeature[]
+  /** Layer names currently hidden in the panel. */
+  hiddenLayers: Set<string>
+  /** UTM grid overlay on/off. */
+  showGrid: boolean
   /** Live GPS track being recorded (empty when not recording). */
   trackPoints: Position[]
   /** Guidance line from current position to nav target, or null. */
@@ -115,6 +121,8 @@ export default function MapView({
   liveFires,
   showLivePerimeters,
   userFeatures,
+  hiddenLayers,
+  showGrid,
   trackPoints,
   navLine,
   pinMode,
@@ -145,6 +153,10 @@ export default function MapView({
   }, [units])
   const userFeaturesRef = useRef<UserFeature[]>(userFeatures)
   userFeaturesRef.current = userFeatures
+  const hiddenLayersRef = useRef(hiddenLayers)
+  hiddenLayersRef.current = hiddenLayers
+  const showGridRef = useRef(showGrid)
+  showGridRef.current = showGrid
   const pinModeRef = useRef(pinMode)
   pinModeRef.current = pinMode
   const onDropPinRef = useRef(onDropPin)
@@ -349,8 +361,12 @@ export default function MapView({
       setCenter([c.lng, c.lat])
     })
 
+    // UTM grid follows the view.
+    map.on('moveend', () => updateGrid(map, showGridRef.current))
+
     map.on('load', () => {
       loadedRef.current = true
+      addGridLayers(map)
       addLiveFireLayers(map)
       addUserFeatureLayers(map)
       addFenceLayers(map)
@@ -364,10 +380,11 @@ export default function MapView({
         map.setLayoutProperty('live-perim-fill', 'visibility', 'none')
         map.setLayoutProperty('live-perim-line', 'visibility', 'none')
       }
-      setUserFeatureData(map, userFeaturesRef.current)
+      setUserFeatureData(map, userFeaturesRef.current, hiddenLayersRef.current)
       ;(map.getSource('fences') as maplibregl.GeoJSONSource | undefined)?.setData(
         fenceShapes(userFeaturesRef.current),
       )
+      updateGrid(map, showGridRef.current)
     })
 
     // Tap priority: measuring > dropping a pin > editing your own features >
@@ -496,10 +513,17 @@ export default function MapView({
   useEffect(() => {
     const map = mapRef.current
     if (!map || !loadedRef.current) return
-    setUserFeatureData(map, userFeatures)
+    setUserFeatureData(map, userFeatures, hiddenLayers)
     const fences = map.getSource('fences') as maplibregl.GeoJSONSource | undefined
-    fences?.setData(fenceShapes(userFeatures))
-  }, [userFeatures])
+    fences?.setData(fenceShapes(userFeatures.filter((f) => !hiddenLayers.has(featureLayer(f)))))
+  }, [userFeatures, hiddenLayers])
+
+  // Grid toggle.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !loadedRef.current) return
+    updateGrid(map, showGrid)
+  }, [showGrid])
 
   // Push the in-progress GPS track to the map.
   useEffect(() => {
@@ -833,9 +857,53 @@ function addUserFeatureLayers(map: MlMap) {
   })
 }
 
-function setUserFeatureData(map: MlMap, features: UserFeature[]) {
+function setUserFeatureData(map: MlMap, features: UserFeature[], hiddenLayers: Set<string>) {
   const source = map.getSource('user-features') as maplibregl.GeoJSONSource | undefined
-  source?.setData(featuresToGeoJSON(features))
+  source?.setData(
+    featuresToGeoJSON(features.filter((f) => !hiddenLayers.has(featureLayer(f)))),
+  )
+}
+
+function addGridLayers(map: MlMap) {
+  map.addSource('grid', { type: 'geojson', data: EMPTY_FC })
+  map.addSource('grid-labels', { type: 'geojson', data: EMPTY_FC })
+  map.addLayer({
+    id: 'grid-lines',
+    type: 'line',
+    source: 'grid',
+    paint: { 'line-color': '#374151', 'line-width': 0.8, 'line-opacity': 0.55 },
+  })
+  map.addLayer({
+    id: 'grid-refs',
+    type: 'symbol',
+    source: 'grid-labels',
+    layout: {
+      'text-field': ['get', 'ref'],
+      'text-font': ['Noto Sans Regular'],
+      'text-size': 11,
+      'text-allow-overlap': false,
+    },
+    paint: {
+      'text-color': '#374151',
+      'text-opacity': 0.75,
+      'text-halo-color': '#ffffff',
+      'text-halo-width': 1,
+    },
+  })
+}
+
+function updateGrid(map: MlMap, show: boolean) {
+  const lines = map.getSource('grid') as maplibregl.GeoJSONSource | undefined
+  const labels = map.getSource('grid-labels') as maplibregl.GeoJSONSource | undefined
+  if (!lines || !labels) return
+  if (!show) {
+    lines.setData(EMPTY_FC)
+    labels.setData(EMPTY_FC)
+    return
+  }
+  const grid = buildGrid(map.getBounds(), map.getZoom())
+  lines.setData(grid.lines)
+  labels.setData(grid.labels)
 }
 
 function addFenceLayers(map: MlMap) {

@@ -40,9 +40,9 @@ export interface Utm {
   northing: number
 }
 
-export function toUtm(lat: number, lon: number): Utm | null {
+export function toUtm(lat: number, lon: number, forceZone?: number): Utm | null {
   if (lat < -80 || lat > 84) return null
-  const zone = Math.max(1, Math.min(60, Math.floor((lon + 180) / 6) + 1))
+  const zone = forceZone ?? Math.max(1, Math.min(60, Math.floor((lon + 180) / 6) + 1))
   const lam0 = rad(zone * 6 - 183)
   const phi = rad(lat)
   const lam = rad(lon)

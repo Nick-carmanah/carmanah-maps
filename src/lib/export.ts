@@ -1,4 +1,5 @@
 import type { Position } from 'geojson'
+import { zipSync } from 'fflate'
 import { featureStat, type UserFeature } from './features'
 
 function esc(s: string): string {
@@ -16,10 +17,21 @@ function kmlColor(hex: string, alpha = 'ff'): string {
 
 const coordStr = (p: Position) => `${p[0]},${p[1]},0`
 
-export function featuresToKml(features: UserFeature[], docName = 'Carmanah Maps export'): string {
+export function featuresToKml(
+  features: UserFeature[],
+  docName = 'Carmanah Maps export',
+  photoRefs?: Map<string, string[]>,
+): string {
   const placemarks = features
     .map((f) => {
-      const desc = f.notes ? `<description>${esc(f.notes)}</description>` : ''
+      const photos = photoRefs?.get(f.id) ?? []
+      const descBody = [
+        f.notes ? esc(f.notes) : '',
+        ...photos.map((p) => `<img src="${p}" width="400"/>`),
+      ]
+        .filter(Boolean)
+        .join('<br/>')
+      const desc = descBody ? `<description><![CDATA[${descBody}]]></description>` : ''
       const attrs = f.attributes?.filter((a) => a.k)
       const extended = attrs?.length
         ? `<ExtendedData>${attrs
@@ -53,6 +65,30 @@ ${placemarks}
 `
 }
 
+/** KMZ = zipped KML with photos embedded, so they travel with the share. */
+export async function featuresToKmz(
+  features: UserFeature[],
+  photosByFeature: Map<string, Blob[]>,
+  docName = 'Carmanah Maps export',
+): Promise<Blob> {
+  const files: Record<string, Uint8Array> = {}
+  const photoRefs = new Map<string, string[]>()
+  for (const [featureId, blobs] of photosByFeature) {
+    const refs: string[] = []
+    for (let i = 0; i < blobs.length; i++) {
+      const path = `files/${featureId.slice(0, 8)}_${i + 1}.jpg`
+      files[path] = new Uint8Array(await blobs[i].arrayBuffer())
+      refs.push(path)
+    }
+    if (refs.length) photoRefs.set(featureId, refs)
+  }
+  files['doc.kml'] = new TextEncoder().encode(featuresToKml(features, docName, photoRefs))
+  const zipped = zipSync(files)
+  return new Blob([zipped.buffer as ArrayBuffer], {
+    type: 'application/vnd.google-earth.kmz',
+  })
+}
+
 export function featuresToGpx(features: UserFeature[]): string {
   const wpts = features
     .filter((f) => f.kind === 'pin')
@@ -66,7 +102,11 @@ export function featuresToGpx(features: UserFeature[]): string {
       const pts = f.coordinates as Position[]
       const ring = f.kind === 'area' ? [...pts, pts[0]] : pts
       const trkpts = ring
-        .map((p) => `        <trkpt lat="${p[1]}" lon="${p[0]}"></trkpt>`)
+        .map((p, i) => {
+          const t = f.times?.[i]
+          const time = t ? `<time>${new Date(t).toISOString()}</time>` : ''
+          return `        <trkpt lat="${p[1]}" lon="${p[0]}">${time}</trkpt>`
+        })
         .join('\n')
       return `  <trk><name>${esc(f.name)}</name>\n    <trkseg>\n${trkpts}\n    </trkseg>\n  </trk>`
     })
@@ -106,9 +146,9 @@ export function featuresToCsv(features: UserFeature[]): string {
 export async function shareOrDownload(
   filename: string,
   mime: string,
-  text: string,
+  content: string | Blob,
 ): Promise<'shared' | 'downloaded'> {
-  const file = new File([text], filename, { type: mime })
+  const file = new File([content], filename, { type: mime })
   if (navigator.canShare?.({ files: [file] })) {
     try {
       await navigator.share({ files: [file], title: filename })

@@ -12,6 +12,10 @@ export interface UserFeature {
   coordinates: Position | Position[]
   /** Fire-ops symbol key (pins only); empty/undefined = plain dot. */
   symbol?: string
+  /** Display layer, e.g. "Danger trees" — the unit of sharing/visibility. */
+  layer?: string
+  /** Per-vertex timestamps for recorded tracks (parallel to coordinates). */
+  times?: number[]
   /** Custom attribute fields, in display order. */
   attributes?: { k: string; v: string }[]
   /** Entry/exit alerting. Radius applies to pin and line fences. */
@@ -23,16 +27,37 @@ export interface UserFeature {
 /** Built-in fire-ops symbol set (Avenza Pro makes you import these). */
 export const FIRE_SYMBOLS: Record<
   string,
-  { label: string; color: string; text: string; shape: 'circle' | 'triangle' }
+  {
+    label: string
+    color: string
+    text: string
+    shape: 'circle' | 'triangle' | 'square'
+    layer: string
+  }
 > = {
-  'drop-point': { label: 'Drop point', color: '#111827', text: 'DP', shape: 'circle' },
-  helispot: { label: 'Helispot', color: '#1d4ed8', text: 'H', shape: 'circle' },
-  'safety-zone': { label: 'Safety zone', color: '#15803d', text: 'SZ', shape: 'circle' },
-  staging: { label: 'Staging', color: '#7c3aed', text: 'S', shape: 'circle' },
-  water: { label: 'Water source', color: '#0369a1', text: 'W', shape: 'circle' },
-  medical: { label: 'Medical', color: '#b91c1c', text: '+', shape: 'circle' },
-  hazard: { label: 'Hazard', color: '#ca8a04', text: '!', shape: 'triangle' },
-  camp: { label: 'Camp', color: '#78350f', text: 'C', shape: 'circle' },
+  'drop-point': { label: 'Drop point', color: '#111827', text: 'DP', shape: 'circle', layer: 'Operations' },
+  helispot: { label: 'Helispot', color: '#1d4ed8', text: 'H', shape: 'circle', layer: 'Operations' },
+  'safety-zone': { label: 'Safety zone', color: '#15803d', text: 'SZ', shape: 'circle', layer: 'Safety' },
+  staging: { label: 'Staging', color: '#7c3aed', text: 'S', shape: 'circle', layer: 'Operations' },
+  water: { label: 'Water source', color: '#0369a1', text: 'W', shape: 'circle', layer: 'Water & pumps' },
+  pump: { label: 'Pump', color: '#0284c7', text: 'P', shape: 'square', layer: 'Water & pumps' },
+  medical: { label: 'Medical', color: '#b91c1c', text: '+', shape: 'circle', layer: 'Safety' },
+  hazard: { label: 'Hazard', color: '#ca8a04', text: '!', shape: 'triangle', layer: 'Hazards' },
+  'danger-tree': { label: 'Danger tree', color: '#b45309', text: 'DT', shape: 'triangle', layer: 'Danger trees' },
+  hotspot: { label: 'Hotspot', color: '#ea580c', text: 'HS', shape: 'circle', layer: 'Hotspots' },
+  structure: { label: 'Structure', color: '#475569', text: 'ST', shape: 'square', layer: 'Values at risk' },
+  beehive: { label: 'Beehive', color: '#a16207', text: 'BH', shape: 'square', layer: 'Values at risk' },
+  camp: { label: 'Camp', color: '#78350f', text: 'C', shape: 'circle', layer: 'Operations' },
+}
+
+export const DEFAULT_LAYERS: Record<UserFeature['kind'], string> = {
+  pin: 'Placemarks',
+  line: 'Lines',
+  area: 'Areas',
+}
+
+export function featureLayer(f: UserFeature): string {
+  return f.layer || DEFAULT_LAYERS[f.kind]
 }
 
 /** Rasterize a symbol for maplibre addImage (drawn at 2x for retina). */
@@ -52,6 +77,9 @@ export function renderSymbolImage(key: string): ImageData {
     ctx.lineTo(size - 4, size - 6)
     ctx.lineTo(4, size - 6)
     ctx.closePath()
+  } else if (spec.shape === 'square') {
+    ctx.beginPath()
+    ctx.roundRect(5, 5, size - 10, size - 10, 6)
   } else {
     ctx.beginPath()
     ctx.arc(size / 2, size / 2, size / 2 - 4, 0, Math.PI * 2)

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import {
   FEATURE_COLORS,
   FIRE_SYMBOLS,
+  featureLayer,
   featureStat,
   KIND_ICONS,
   type UserFeature,
@@ -16,6 +17,8 @@ export interface PhotoThumb {
 
 interface FeatureSheetProps {
   feature: UserFeature
+  /** Existing layer names, for the layer picker suggestions. */
+  layerNames: string[]
   photos: PhotoThumb[]
   onChange: (feature: UserFeature) => void
   onDelete: (id: string) => void
@@ -29,6 +32,7 @@ interface FeatureSheetProps {
  * custom attribute fields, photos, navigate, delete. */
 export default function FeatureSheet({
   feature,
+  layerNames,
   photos,
   onChange,
   onDelete,
@@ -88,8 +92,10 @@ export default function FeatureSheet({
               <button
                 key={t.what}
                 className="btn small"
-                onClick={() => update({ color: t.color, name: buildConventionName(t.what) })}
-                title={`${t.label} — sets color and name`}
+                onClick={() =>
+                  update({ color: t.color, name: buildConventionName(t.what), layer: t.layer })
+                }
+                title={`${t.label} — sets color, name, and layer`}
               >
                 <span className="type-dot" style={{ background: t.color }} />
                 {t.label}
@@ -113,16 +119,32 @@ export default function FeatureSheet({
                 className={`symbol-btn${feature.symbol === key ? ' selected' : ''}`}
                 style={{
                   background: s.color,
-                  borderRadius: s.shape === 'triangle' ? '4px' : '50%',
+                  borderRadius:
+                    s.shape === 'triangle' ? '4px' : s.shape === 'square' ? '8px' : '50%',
                 }}
-                onClick={() => update({ symbol: key })}
-                title={s.label}
+                onClick={() => update({ symbol: key, layer: s.layer })}
+                title={`${s.label} → ${s.layer} layer`}
               >
                 {s.text}
               </button>
             ))}
           </div>
         )}
+
+        <div className="layer-field">
+          <span>Layer</span>
+          <input
+            list="layer-names"
+            value={featureLayer(feature)}
+            onChange={(e) => update({ layer: e.target.value })}
+            placeholder="e.g. Danger trees"
+          />
+          <datalist id="layer-names">
+            {layerNames.map((n) => (
+              <option key={n} value={n} />
+            ))}
+          </datalist>
+        </div>
 
         <div className="fence-row">
           <label>

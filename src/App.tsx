@@ -3,8 +3,15 @@ import MapView from './map/MapView'
 import LayerPanel from './components/LayerPanel'
 import QrScanner from './components/QrScanner'
 import FeatureSheet, { type PhotoThumb } from './components/FeatureSheet'
-import { featuresToCsv, featuresToGpx, featuresToKml, shareOrDownload } from './lib/export'
-import { FEATURE_COLORS, type UserFeature } from './lib/features'
+import {
+  featuresToCsv,
+  featuresToGpx,
+  featuresToKml,
+  featuresToKmz,
+  shareOrDownload,
+} from './lib/export'
+import { FEATURE_COLORS, featureLayer, type UserFeature } from './lib/features'
+import type { ExportFormat } from './components/LayerPanel'
 import { fetchKmlFromUrl, parseImportedFile, type ParsedKml } from './lib/kml'
 import { fetchLiveFires, type LiveFires } from './lib/livefires'
 import {
@@ -71,6 +78,8 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [profile, setProfile] = useState(getProfile)
   const [units, setUnitsState] = useState<Units>(getUnits)
+  const [hiddenLayers, setHiddenLayers] = useState<Set<string>>(new Set())
+  const [gridOn, setGridOn] = useState(() => localStorage.getItem('carmanah-grid') === '1')
   const navTarget = userFeatures.find((f) => f.id === navTargetId) ?? null
   const nav = useNavigation(navTarget, (m, e) => showToastRef.current(m, e))
   useGeofences(userFeatures, (m) => showToastRef.current(`⚠️ ${m}`, true))
@@ -216,7 +225,7 @@ export default function App() {
       kind: UserFeature['kind'],
       coordinates: Position | Position[],
       notes = '',
-      opts: { label?: string; color?: string } = {},
+      opts: { label?: string; color?: string; layer?: string; times?: number[] } = {},
     ) => {
       const label = opts.label ?? { pin: 'Pin', line: 'Line', area: 'Area' }[kind]
       // Workshop naming convention (What_When_Where_Who) once a profile is set.
@@ -235,6 +244,8 @@ export default function App() {
         notes,
         color: opts.color ?? FEATURE_COLORS[0],
         coordinates,
+        layer: opts.layer,
+        times: opts.times,
         createdAt: Date.now(),
         updatedAt: Date.now(),
       }
@@ -283,7 +294,12 @@ export default function App() {
       ]
         .filter(Boolean)
         .join(' · ')
-      createFeature(as, positions, notes, { label: 'Track', color: '#38bdf8' })
+      createFeature(as, positions, notes, {
+        label: 'Track',
+        color: '#38bdf8',
+        layer: as === 'area' ? 'Areas' : 'Tracks',
+        times: as === 'line' ? track.points.map((p) => p.time) : undefined,
+      })
       track.discard()
     },
     [track, createFeature, showToast],
@@ -338,23 +354,64 @@ export default function App() {
   }, [])
 
   const handleExport = useCallback(
-    async (format: 'kml' | 'gpx' | 'csv') => {
-      if (!userFeatures.length) {
+    async (format: ExportFormat, layer?: string) => {
+      const scoped = layer
+        ? userFeatures.filter((f) => featureLayer(f) === layer)
+        : userFeatures
+      if (!scoped.length) {
         showToast('Nothing to export yet — drop a pin or draw something first', true)
         return
       }
       const stamp = new Date().toISOString().slice(0, 10)
-      const exports = {
-        kml: [featuresToKml(userFeatures), 'application/vnd.google-earth.kml+xml'],
-        gpx: [featuresToGpx(userFeatures), 'application/gpx+xml'],
-        csv: [featuresToCsv(userFeatures), 'text/csv'],
-      } as const
-      const [content, mime] = exports[format]
-      const result = await shareOrDownload(`carmanah-maps-${stamp}.${format}`, mime, content)
-      showToast(result === 'shared' ? 'Shared' : `Downloaded .${format} file`)
+      const slug = layer ? `-${layer.toLowerCase().replace(/[^a-z0-9]+/g, '-')}` : ''
+      const filename = `carmanah-maps${slug}-${stamp}.${format}`
+      const docName = layer ?? 'Carmanah Maps export'
+      let content: string | Blob
+      let mime: string
+      if (format === 'kmz') {
+        // Photos travel with the share.
+        const photosByFeature = new Map<string, Blob[]>()
+        for (const f of scoped) {
+          const stored = await listPhotos(f.id)
+          if (stored.length) photosByFeature.set(f.id, stored.map((p) => p.blob))
+        }
+        content = await featuresToKmz(scoped, photosByFeature, docName)
+        mime = 'application/vnd.google-earth.kmz'
+      } else if (format === 'kml') {
+        content = featuresToKml(scoped, docName)
+        mime = 'application/vnd.google-earth.kml+xml'
+      } else if (format === 'gpx') {
+        content = featuresToGpx(scoped)
+        mime = 'application/gpx+xml'
+      } else {
+        content = featuresToCsv(scoped)
+        mime = 'text/csv'
+      }
+      const result = await shareOrDownload(filename, mime, content)
+      showToast(
+        result === 'shared'
+          ? `Shared ${layer ?? 'all data'}`
+          : `Downloaded ${filename}`,
+      )
     },
     [userFeatures, showToast],
   )
+
+  const handleToggleLayer = useCallback((name: string) => {
+    setHiddenLayers((prev) => {
+      const next = new Set(prev)
+      if (next.has(name)) next.delete(name)
+      else next.add(name)
+      return next
+    })
+  }, [])
+
+  const handleToggleGrid = useCallback(() => {
+    setGridOn((prev) => {
+      localStorage.setItem('carmanah-grid', prev ? '0' : '1')
+      return !prev
+    })
+  }, [])
 
   const handleToggle = useCallback((id: string) => {
     setHiddenIds((prev) => {
@@ -452,6 +509,8 @@ export default function App() {
           liveFires={liveEnabled ? liveData : null}
           showLivePerimeters={livePerimeters}
           userFeatures={userFeatures}
+          hiddenLayers={hiddenLayers}
+          showGrid={gridOn}
           trackPoints={track.points.map((p) => p.position)}
           navLine={
             nav.position && navTarget ? [nav.position, navTargetPosition(navTarget)] : null
@@ -475,7 +534,11 @@ export default function App() {
           onRefreshLive={refreshLiveFires}
           livePerimetersEnabled={livePerimeters}
           onToggleLivePerimeters={toggleLivePerimeters}
+          gridOn={gridOn}
+          onToggleGrid={handleToggleGrid}
           userFeatures={userFeatures}
+          hiddenLayers={hiddenLayers}
+          onToggleLayer={handleToggleLayer}
           onEditFeature={setEditingId}
           onFocusFeature={focusOverlay}
           onExport={handleExport}
@@ -528,6 +591,7 @@ export default function App() {
           return feature ? (
             <FeatureSheet
               feature={feature}
+              layerNames={[...new Set(userFeatures.map(featureLayer))]}
               photos={photos}
               onAddPhotos={handleAddPhotos}
               onDeletePhoto={handleDeletePhoto}

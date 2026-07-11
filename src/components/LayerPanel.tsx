@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import type { Overlay } from '../lib/store'
 import { formatAge } from '../lib/livefires'
-import { featureStat, KIND_ICONS, type UserFeature } from '../lib/features'
+import { featureLayer, featureStat, KIND_ICONS, type UserFeature } from '../lib/features'
+
+export type ExportFormat = 'kml' | 'kmz' | 'gpx' | 'csv'
 
 interface LayerPanelProps {
   overlays: Overlay[]
@@ -16,10 +18,14 @@ interface LayerPanelProps {
   onRefreshLive: () => void
   livePerimetersEnabled: boolean
   onToggleLivePerimeters: () => void
+  gridOn: boolean
+  onToggleGrid: () => void
   userFeatures: UserFeature[]
+  hiddenLayers: Set<string>
+  onToggleLayer: (name: string) => void
   onEditFeature: (id: string) => void
   onFocusFeature: (id: string) => void
-  onExport: (format: 'kml' | 'gpx' | 'csv') => void
+  onExport: (format: ExportFormat, layer?: string) => void
 }
 
 export default function LayerPanel({
@@ -35,12 +41,23 @@ export default function LayerPanel({
   onRefreshLive,
   livePerimetersEnabled,
   onToggleLivePerimeters,
+  gridOn,
+  onToggleGrid,
   userFeatures,
+  hiddenLayers,
+  onToggleLayer,
   onEditFeature,
   onFocusFeature,
   onExport,
 }: LayerPanelProps) {
   const [collapsed, setCollapsed] = useState(false)
+
+  const layers = new Map<string, UserFeature[]>()
+  for (const f of userFeatures) {
+    const name = featureLayer(f)
+    if (!layers.has(name)) layers.set(name, [])
+    layers.get(name)!.push(f)
+  }
 
   return (
     <div className="layer-panel">
@@ -82,35 +99,73 @@ export default function LayerPanel({
           <span className="name">Fire perimeters</span>
         </div>
       )}
+      {!collapsed && (
+        <div className="layer-row">
+          <input
+            type="checkbox"
+            checked={gridOn}
+            onChange={onToggleGrid}
+            title="Show/hide UTM grid"
+          />
+          <span className="name">
+            UTM grid
+            <div className="meta">1 km cells · MGRS refs</div>
+          </span>
+        </div>
+      )}
       {!collapsed && userFeatures.length > 0 && (
         <>
           <div className="section-header">
             <span>My Data ({userFeatures.length})</span>
             <span className="export-btns">
-              {(['kml', 'gpx', 'csv'] as const).map((fmt) => (
-                <button key={fmt} onClick={() => onExport(fmt)} title={`Export ${fmt.toUpperCase()}`}>
+              {(['kmz', 'kml', 'gpx', 'csv'] as const).map((fmt) => (
+                <button key={fmt} onClick={() => onExport(fmt)} title={`Export all as ${fmt.toUpperCase()}`}>
                   {fmt.toUpperCase()}
                 </button>
               ))}
             </span>
           </div>
-          {userFeatures.map((f) => (
-            <div className="layer-row" key={f.id}>
-              <span className="kind-icon" style={{ color: f.color }}>
-                {KIND_ICONS[f.kind]}
-              </span>
-              <span
-                className="name"
-                onClick={() => onFocusFeature(f.id)}
-                title="Zoom to"
-                style={{ cursor: 'pointer' }}
-              >
-                {f.name}
-                <div className="meta">{featureStat(f)}</div>
-              </span>
-              <button onClick={() => onEditFeature(f.id)} title="Edit">
-                ✎
-              </button>
+          {[...layers.entries()].map(([layerName, features]) => (
+            <div key={layerName}>
+              <div className="layer-row layer-group">
+                <input
+                  type="checkbox"
+                  checked={!hiddenLayers.has(layerName)}
+                  onChange={() => onToggleLayer(layerName)}
+                  title="Show/hide layer"
+                />
+                <span className="name group-name">
+                  {layerName}
+                  <span className="meta"> · {features.length}</span>
+                </span>
+                <span className="export-btns">
+                  <button
+                    onClick={() => onExport('kmz', layerName)}
+                    title={`Share only "${layerName}" (KMZ with photos)`}
+                  >
+                    Share
+                  </button>
+                </span>
+              </div>
+              {features.map((f) => (
+                <div className="layer-row sub-row" key={f.id}>
+                  <span className="kind-icon" style={{ color: f.color }}>
+                    {KIND_ICONS[f.kind]}
+                  </span>
+                  <span
+                    className="name"
+                    onClick={() => onFocusFeature(f.id)}
+                    title="Zoom to"
+                    style={{ cursor: 'pointer' }}
+                  >
+                    {f.name}
+                    <div className="meta">{featureStat(f)}</div>
+                  </span>
+                  <button onClick={() => onEditFeature(f.id)} title="Edit">
+                    ✎
+                  </button>
+                </div>
+              ))}
             </div>
           ))}
         </>
