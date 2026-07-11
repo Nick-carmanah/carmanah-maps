@@ -3,6 +3,8 @@ import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 
 export default defineConfig({
+  // GitHub Pages serves the app under /carmanah-maps/; local dev stays at /.
+  base: process.env.GITHUB_ACTIONS ? '/carmanah-maps/' : '/',
   plugins: [
     react(),
     VitePWA({

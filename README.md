@@ -39,7 +39,14 @@ npm run build     # production build + service worker in dist/
 
 `public/test-fire.kml` is a mock fire (perimeter, drop points, helispot,
 division break) near Lytton BC. Load it with:
-`http://localhost:5173/?kml=/test-fire.kml`
+`http://localhost:5173/?kml=test-fire.kml`
+
+## Deploy
+
+Pushing to `main` deploys to GitHub Pages via
+[.github/workflows/deploy.yml](.github/workflows/deploy.yml) (the build uses
+base `/carmanah-maps/` in CI, `/` locally). Production home will be
+maps.carmanahwildfire.com once DNS is pointed.
 
 ## Roadmap
 
