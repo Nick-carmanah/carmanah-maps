@@ -30,7 +30,7 @@ Legend: ✅ done · 🟡 partial · ⬜ todo · ➕ ours (no Avenza equivalent)
 | Real-time GPS position on map | Free | ✅ | Geolocate control w/ tracking |
 | Record GPS tracks (distance/time/speed/elevation) | Free | ✅ | Foreground recording w/ wake lock, live stats chip; background tracking needs Capacitor (v2) |
 | Convert tracks to areas | Pro | ✅ | Save-as-area in the stop/review step |
-| Navigation/path tools (navigate to placemark: bearing, distance, ETA) | Free | ⬜ | Compass-style nav overlay |
+| Navigation/path tools (navigate to placemark: bearing, distance, ETA) | Free | ✅ | Navigate from feature sheet: live distance/bearing/ETA chip + dashed guidance line |
 | Map rotation & compass | Free | 🟡 | Rotation works (drag/ctrl); needs device-compass north-up toggle on mobile |
 | Map orientation lock | Pro | ⬜ | Lock north-up / track-up |
 | Coordinate search (go to coordinates) | Free | ✅ | Pill accepts DD, DMS, UTM, MGRS; flies + drops marker |
@@ -84,7 +84,7 @@ Legend: ✅ done · 🟡 partial · ⬜ todo · ➕ ours (no Avenza equivalent)
 3. ~~Export KML/GPX/CSV~~ ✅ (share links todo)
 4. ~~GPS track recording + convert-track-to-area~~ ✅ (foreground; background = v2/Capacitor)
 5. ~~Coordinate readout/search (DD/DMS/UTM/MGRS)~~ ✅ — units toggle still todo
-6. **Navigate-to-placemark** + compass/orientation modes.
+6. ~~Navigate-to-placemark~~ ✅ — device-compass / orientation-lock modes still todo (need real device)
 7. **Geotagged photos**, **attribute fields**, **fire-ops symbol set**.
 8. **Geofences** (feature → layer → boundary).
 9. **Satellite basemap**, **feature search**, **folders**.

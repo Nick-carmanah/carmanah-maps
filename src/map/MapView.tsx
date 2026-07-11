@@ -75,6 +75,8 @@ interface MapViewProps {
   userFeatures: UserFeature[]
   /** Live GPS track being recorded (empty when not recording). */
   trackPoints: Position[]
+  /** Guidance line from current position to nav target, or null. */
+  navLine: [Position, Position] | null
   /** When true, the next map tap drops a pin. */
   pinMode: boolean
   onDropPin: (position: Position) => void
@@ -92,6 +94,7 @@ export default function MapView({
   liveFires,
   userFeatures,
   trackPoints,
+  navLine,
   pinMode,
   onDropPin,
   onEditFeature,
@@ -237,6 +240,7 @@ export default function MapView({
       addLiveFireLayers(map)
       addUserFeatureLayers(map)
       addTrackLayers(map)
+      addNavLayers(map)
       addCoordMarkerLayer(map)
       addMeasureLayers(map)
       syncOverlays(map, overlaysRef.current)
@@ -375,6 +379,22 @@ export default function MapView({
         : EMPTY_FC,
     )
   }, [trackPoints])
+
+  // Push the navigation guidance line to the map.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !loadedRef.current) return
+    const source = map.getSource('nav') as maplibregl.GeoJSONSource | undefined
+    source?.setData(
+      navLine
+        ? {
+            type: 'Feature',
+            properties: {},
+            geometry: { type: 'LineString', coordinates: navLine },
+          }
+        : EMPTY_FC,
+    )
+  }, [navLine])
 
   // Pin mode cursor.
   useEffect(() => {
@@ -637,6 +657,20 @@ function addTrackLayers(map: MlMap) {
     type: 'line',
     source: 'track',
     paint: { 'line-color': '#38bdf8', 'line-width': 3 },
+  })
+}
+
+function addNavLayers(map: MlMap) {
+  map.addSource('nav', { type: 'geojson', data: EMPTY_FC })
+  map.addLayer({
+    id: 'nav-line',
+    type: 'line',
+    source: 'nav',
+    paint: {
+      'line-color': '#4ade80',
+      'line-width': 3,
+      'line-dasharray': [1.5, 1.5],
+    },
   })
 }
 

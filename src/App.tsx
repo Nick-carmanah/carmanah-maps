@@ -9,6 +9,7 @@ import { fetchKmlFromUrl, parseKmlOrKmzFile, type ParsedKml } from './lib/kml'
 import { fetchLiveFires, type LiveFires } from './lib/livefires'
 import { formatArea, formatDistance, pathLengthMeters, ringAreaSqMeters } from './lib/measure'
 import { formatDuration, trackStats, useTrackRecorder } from './hooks/useTrackRecorder'
+import { navTargetPosition, useNavigation } from './hooks/useNavigation'
 import {
   deleteFeature,
   deleteOverlay,
@@ -47,6 +48,9 @@ export default function App() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const track = useTrackRecorder((m, e) => showToastRef.current(m, e))
   const showToastRef = useRef<(m: string, e?: boolean) => void>(() => {})
+  const [navTargetId, setNavTargetId] = useState<string | null>(null)
+  const navTarget = userFeatures.find((f) => f.id === navTargetId) ?? null
+  const nav = useNavigation(navTarget, (m, e) => showToastRef.current(m, e))
   const [toast, setToast] = useState<Toast | null>(null)
   const [focusRequest, setFocusRequest] = useState<{ id: string; nonce: number } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -362,6 +366,9 @@ export default function App() {
           liveFires={liveEnabled ? liveData : null}
           userFeatures={userFeatures}
           trackPoints={track.points.map((p) => p.position)}
+          navLine={
+            nav.position && navTarget ? [nav.position, navTargetPosition(navTarget)] : null
+          }
           pinMode={pinMode}
           onDropPin={handleDropPin}
           onEditFeature={setEditingId}
@@ -433,10 +440,41 @@ export default function App() {
               feature={feature}
               onChange={handleFeatureChange}
               onDelete={handleFeatureDelete}
+              onNavigate={(id) => {
+                setEditingId(null)
+                setNavTargetId(id)
+              }}
               onClose={() => setEditingId(null)}
             />
           ) : null
         })()}
+
+      {navTarget && (
+        <div className="nav-chip">
+          <span
+            className="nav-arrow"
+            style={{ transform: `rotate(${(nav.bearing ?? 0) - 90}deg)` }}
+            aria-hidden
+          >
+            ➤
+          </span>
+          <span className="readout">
+            {navTarget.name}
+            {nav.distanceM != null ? (
+              <>
+                {' · '}
+                {formatDistance(nav.distanceM)} · {Math.round(nav.bearing ?? 0)}°T
+                {nav.etaS != null && ` · ETA ${formatDuration(nav.etaS * 1000)}`}
+              </>
+            ) : (
+              ' · waiting for GPS…'
+            )}
+          </span>
+          <button className="btn" onClick={() => setNavTargetId(null)}>
+            End
+          </button>
+        </div>
+      )}
 
       {toast && <div className={`toast${toast.isError ? ' error' : ''}`}>{toast.message}</div>}
     </div>

@@ -5,6 +5,7 @@ interface FeatureSheetProps {
   feature: UserFeature
   onChange: (feature: UserFeature) => void
   onDelete: (id: string) => void
+  onNavigate: (id: string) => void
   onClose: () => void
 }
 
@@ -13,6 +14,7 @@ export default function FeatureSheet({
   feature,
   onChange,
   onDelete,
+  onNavigate,
   onClose,
 }: FeatureSheetProps) {
   const update = (patch: Partial<UserFeature>) =>
@@ -63,12 +65,17 @@ export default function FeatureSheet({
             />
           ))}
         </div>
-        <button
-          className="btn danger"
-          onClick={() => (armed ? onDelete(feature.id) : setArmed(true))}
-        >
-          {armed ? 'Tap again to delete' : 'Delete'}
-        </button>
+        <span className="sheet-actions">
+          <button className="btn" onClick={() => onNavigate(feature.id)}>
+            🧭 Navigate
+          </button>
+          <button
+            className="btn danger"
+            onClick={() => (armed ? onDelete(feature.id) : setArmed(true))}
+          >
+            {armed ? 'Tap again to delete' : 'Delete'}
+          </button>
+        </span>
       </div>
     </div>
   )
