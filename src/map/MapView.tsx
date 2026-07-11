@@ -88,6 +88,8 @@ interface MapViewProps {
   onSaveMeasure: (kind: 'line' | 'area', points: Position[]) => void
   /** Live BCWS fire data to display, or null when the layer is off. */
   liveFires: LiveFires | null
+  /** Show/hide the BCWS perimeter polygons (points stay visible). */
+  showLivePerimeters: boolean
   userFeatures: UserFeature[]
   /** Live GPS track being recorded (empty when not recording). */
   trackPoints: Position[]
@@ -108,6 +110,7 @@ export default function MapView({
   onExitMeasure,
   onSaveMeasure,
   liveFires,
+  showLivePerimeters,
   userFeatures,
   trackPoints,
   navLine,
@@ -126,6 +129,8 @@ export default function MapView({
   const [measurePoints, setMeasurePoints] = useState<Position[]>([])
   const liveFiresRef = useRef<LiveFires | null>(liveFires)
   liveFiresRef.current = liveFires
+  const showLivePerimetersRef = useRef(showLivePerimeters)
+  showLivePerimetersRef.current = showLivePerimeters
   const userFeaturesRef = useRef<UserFeature[]>(userFeatures)
   userFeaturesRef.current = userFeatures
   const pinModeRef = useRef(pinMode)
@@ -340,6 +345,10 @@ export default function MapView({
       addMeasureLayers(map)
       syncOverlays(map, overlaysRef.current)
       setLiveFireData(map, liveFiresRef.current)
+      if (!showLivePerimetersRef.current) {
+        map.setLayoutProperty('live-perim-fill', 'visibility', 'none')
+        map.setLayoutProperty('live-perim-line', 'visibility', 'none')
+      }
       setUserFeatureData(map, userFeaturesRef.current)
       ;(map.getSource('fences') as maplibregl.GeoJSONSource | undefined)?.setData(
         fenceShapes(userFeaturesRef.current),
@@ -456,6 +465,16 @@ export default function MapView({
     if (!map || !loadedRef.current) return
     setLiveFireData(map, liveFires)
   }, [liveFires])
+
+  // Toggle BCWS perimeter polygons independently of the fire points.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !loadedRef.current) return
+    const visibility = showLivePerimeters ? 'visible' : 'none'
+    for (const layerId of ['live-perim-fill', 'live-perim-line']) {
+      if (map.getLayer(layerId)) map.setLayoutProperty(layerId, 'visibility', visibility)
+    }
+  }, [showLivePerimeters, liveFires])
 
   // Push user features (and their armed geofence outlines) to the map.
   useEffect(() => {

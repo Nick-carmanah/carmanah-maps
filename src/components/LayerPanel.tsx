@@ -14,6 +14,8 @@ interface LayerPanelProps {
   liveRefreshing: boolean
   onToggleLive: () => void
   onRefreshLive: () => void
+  livePerimetersEnabled: boolean
+  onToggleLivePerimeters: () => void
   userFeatures: UserFeature[]
   onEditFeature: (id: string) => void
   onFocusFeature: (id: string) => void
@@ -31,6 +33,8 @@ export default function LayerPanel({
   liveRefreshing,
   onToggleLive,
   onRefreshLive,
+  livePerimetersEnabled,
+  onToggleLivePerimeters,
   userFeatures,
   onEditFeature,
   onFocusFeature,
@@ -65,6 +69,17 @@ export default function LayerPanel({
           <button onClick={onRefreshLive} disabled={liveRefreshing} title="Refresh live fires">
             ↻
           </button>
+        </div>
+      )}
+      {!collapsed && liveEnabled && (
+        <div className="layer-row sub-row">
+          <input
+            type="checkbox"
+            checked={livePerimetersEnabled}
+            onChange={onToggleLivePerimeters}
+            title="Show/hide fire perimeters"
+          />
+          <span className="name">Fire perimeters</span>
         </div>
       )}
       {!collapsed && userFeatures.length > 0 && (

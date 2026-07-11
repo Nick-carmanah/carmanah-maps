@@ -48,6 +48,9 @@ export default function App() {
   )
   const [liveData, setLiveData] = useState<LiveFires | null>(null)
   const [liveRefreshing, setLiveRefreshing] = useState(false)
+  const [livePerimeters, setLivePerimeters] = useState(
+    () => localStorage.getItem('carmanah-live-perims') !== '0',
+  )
   const [userFeatures, setUserFeatures] = useState<UserFeature[]>([])
   const [pinMode, setPinMode] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -118,6 +121,13 @@ export default function App() {
       }
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const toggleLivePerimeters = useCallback(() => {
+    setLivePerimeters((prev) => {
+      localStorage.setItem('carmanah-live-perims', prev ? '0' : '1')
+      return !prev
+    })
   }, [])
 
   const toggleLive = useCallback(() => {
@@ -412,6 +422,7 @@ export default function App() {
           onExitMeasure={() => setMeasuring(false)}
           onSaveMeasure={handleSaveMeasure}
           liveFires={liveEnabled ? liveData : null}
+          showLivePerimeters={livePerimeters}
           userFeatures={userFeatures}
           trackPoints={track.points.map((p) => p.position)}
           navLine={
@@ -433,6 +444,8 @@ export default function App() {
           liveRefreshing={liveRefreshing}
           onToggleLive={toggleLive}
           onRefreshLive={refreshLiveFires}
+          livePerimetersEnabled={livePerimeters}
+          onToggleLivePerimeters={toggleLivePerimeters}
           userFeatures={userFeatures}
           onEditFeature={setEditingId}
           onFocusFeature={focusOverlay}

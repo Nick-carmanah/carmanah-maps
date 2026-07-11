@@ -143,6 +143,14 @@ html, body, #root {
   color: #eee;
 }
 
+.layer-panel .layer-row.sub-row {
+  padding-left: 32px;
+  border-top: none;
+  padding-top: 0;
+  color: #bbb;
+  font-size: 12px;
+}
+
 .layer-panel .empty {
   padding: 10px 12px;
   color: #888;
