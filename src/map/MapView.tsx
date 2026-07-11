@@ -44,6 +44,15 @@ const MAP_STYLE: maplibregl.StyleSpecification = {
       maxzoom: 19,
       attribution: '© OpenStreetMap contributors',
     },
+    satellite: {
+      type: 'raster',
+      tiles: [
+        'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+      ],
+      tileSize: 256,
+      maxzoom: 19,
+      attribution: 'Imagery: Esri, Maxar, Earthstar Geographics',
+    },
     terrain: {
       type: 'raster-dem',
       tiles: ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],
@@ -55,6 +64,7 @@ const MAP_STYLE: maplibregl.StyleSpecification = {
   },
   layers: [
     { id: 'osm', type: 'raster', source: 'osm' },
+    { id: 'satellite', type: 'raster', source: 'satellite', layout: { visibility: 'none' } },
     {
       id: 'hillshade',
       type: 'hillshade',
@@ -131,13 +141,32 @@ export default function MapView({
   const [packEstimate, setPackEstimate] = useState<number | null>(null)
   const estimateTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
-  // Coordinate readout & search
+  // Basemap toggle (streets ↔ satellite)
+  const [basemap, setBasemap] = useState<'streets' | 'satellite'>(
+    () => (localStorage.getItem('carmanah-basemap') as 'streets' | 'satellite') || 'streets',
+  )
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !loadedRef.current) return
+    map.setLayoutProperty('osm', 'visibility', basemap === 'streets' ? 'visible' : 'none')
+    map.setLayoutProperty(
+      'satellite',
+      'visibility',
+      basemap === 'satellite' ? 'visible' : 'none',
+    )
+    localStorage.setItem('carmanah-basemap', basemap)
+  }, [basemap])
+
+  // Coordinate readout & universal search
   const [coordFmt, setCoordFmt] = useState<CoordFormat>(
     () => (localStorage.getItem('carmanah-coord-fmt') as CoordFormat) || 'dd',
   )
   const [center, setCenter] = useState<Position>([-123.37, 48.43])
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchText, setSearchText] = useState('')
+  const [searchResults, setSearchResults] = useState<
+    { name: string; detail: string; position: Position }[]
+  >([])
 
   const cycleFormat = () => {
     const next = COORD_FORMATS[(COORD_FORMATS.indexOf(coordFmt) + 1) % COORD_FORMATS.length]
@@ -145,12 +174,7 @@ export default function MapView({
     localStorage.setItem('carmanah-coord-fmt', next)
   }
 
-  const runSearch = () => {
-    const pos = parseCoordinate(searchText)
-    if (!pos) {
-      onNotify('Could not read that — try DD, DMS, UTM, or MGRS', true)
-      return
-    }
+  const flyToResult = (pos: Position) => {
     const map = mapRef.current
     if (!map) return
     const source = map.getSource('coord-marker') as maplibregl.GeoJSONSource | undefined
@@ -162,6 +186,70 @@ export default function MapView({
     map.flyTo({ center: pos as [number, number], zoom: Math.max(map.getZoom(), 13) })
     setSearchOpen(false)
     setSearchText('')
+    setSearchResults([])
+  }
+
+  const runSearch = () => {
+    // Coordinates take priority; otherwise search every feature by name.
+    const pos = parseCoordinate(searchText)
+    if (pos) {
+      flyToResult(pos)
+      return
+    }
+    const q = searchText.trim().toLowerCase()
+    if (q.length < 2) {
+      onNotify('Type coordinates or at least 2 characters', true)
+      return
+    }
+    const results: { name: string; detail: string; position: Position }[] = []
+    for (const f of userFeaturesRef.current) {
+      if (f.name.toLowerCase().includes(q)) {
+        results.push({
+          name: f.name,
+          detail: `My Data · ${f.kind}`,
+          position: f.kind === 'pin' ? (f.coordinates as Position) : (f.coordinates as Position[])[0],
+        })
+      }
+    }
+    for (const overlay of overlaysRef.current) {
+      for (const feat of overlay.geojson.features) {
+        const name = feat.properties?.name
+        if (
+          typeof name === 'string' &&
+          name.toLowerCase().includes(q) &&
+          feat.geometry &&
+          'coordinates' in feat.geometry
+        ) {
+          results.push({
+            name,
+            detail: overlay.name,
+            position: firstPosition(feat.geometry.coordinates),
+          })
+        }
+      }
+    }
+    for (const feat of liveFiresRef.current?.points.features ?? []) {
+      const p = feat.properties ?? {}
+      const label = [p.INCIDENT_NAME, p.FIRE_NUMBER, p.GEOGRAPHIC_DESCRIPTION]
+        .filter(Boolean)
+        .join(' ')
+      if (label.toLowerCase().includes(q) && feat.geometry.type === 'Point') {
+        results.push({
+          name: String(p.INCIDENT_NAME ?? p.FIRE_NUMBER),
+          detail: `Live fire · ${p.FIRE_STATUS}`,
+          position: feat.geometry.coordinates,
+        })
+      }
+    }
+    if (!results.length) {
+      onNotify('No matches — try coordinates (DD, DMS, UTM, MGRS) or a feature name', true)
+      return
+    }
+    if (results.length === 1) {
+      flyToResult(results[0].position)
+      return
+    }
+    setSearchResults(results.slice(0, 8))
   }
 
   const saveOffline = async () => {
@@ -428,17 +516,29 @@ export default function MapView({
             <input
               autoFocus
               value={searchText}
-              onChange={(e) => setSearchText(e.target.value)}
+              onChange={(e) => {
+                setSearchText(e.target.value)
+                setSearchResults([])
+              }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') runSearch()
-                if (e.key === 'Escape') setSearchOpen(false)
+                if (e.key === 'Escape') {
+                  setSearchOpen(false)
+                  setSearchResults([])
+                }
               }}
-              placeholder="DD, DMS, UTM, or MGRS…"
+              placeholder="Coordinates or feature name…"
             />
             <button className="pill-btn" onClick={runSearch}>
               Go
             </button>
-            <button className="pill-btn" onClick={() => setSearchOpen(false)}>
+            <button
+              className="pill-btn"
+              onClick={() => {
+                setSearchOpen(false)
+                setSearchResults([])
+              }}
+            >
               ✕
             </button>
           </>
@@ -453,7 +553,24 @@ export default function MapView({
           </>
         )}
       </div>
+      {searchResults.length > 0 && (
+        <div className="search-results">
+          {searchResults.map((r, i) => (
+            <button key={i} onClick={() => flyToResult(r.position)}>
+              <span className="result-name">{r.name}</span>
+              <span className="result-detail">{r.detail}</span>
+            </button>
+          ))}
+        </div>
+      )}
       <div className="center-crosshair" aria-hidden />
+      <button
+        className="btn basemap-btn"
+        onClick={() => setBasemap((b) => (b === 'streets' ? 'satellite' : 'streets'))}
+        title="Toggle satellite imagery"
+      >
+        {basemap === 'streets' ? '🛰 Satellite' : '🗺 Streets'}
+      </button>
       <button
         className="btn offline-btn"
         onClick={saveOffline}
@@ -713,6 +830,13 @@ function addTrackLayers(map: MlMap) {
     source: 'track',
     paint: { 'line-color': '#38bdf8', 'line-width': 3 },
   })
+}
+
+/** First [lng, lat] in any (nested) coordinate array. */
+function firstPosition(coords: unknown): Position {
+  let c = coords as unknown[]
+  while (Array.isArray(c[0])) c = c[0] as unknown[]
+  return c as Position
 }
 
 function addNavLayers(map: MlMap) {

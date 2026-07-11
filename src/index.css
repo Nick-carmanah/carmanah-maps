@@ -527,6 +527,55 @@ html, body, #root {
   color: #fff;
 }
 
+.search-results {
+  position: absolute;
+  top: 44px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 7;
+  background: rgba(26, 26, 26, 0.96);
+  backdrop-filter: blur(8px);
+  border: 1px solid #3a3a3a;
+  border-radius: 10px;
+  overflow: hidden;
+  min-width: 240px;
+  max-width: calc(100vw - 24px);
+}
+
+.search-results button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  width: 100%;
+  background: none;
+  border: none;
+  border-bottom: 1px solid #2e2e2e;
+  color: #eee;
+  padding: 8px 12px;
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.search-results button:hover {
+  background: #2a2a2a;
+}
+
+.search-results .result-detail {
+  color: #999;
+  font-size: 11px;
+}
+
+.basemap-btn {
+  position: absolute;
+  bottom: 82px;
+  right: 10px;
+  z-index: 5;
+  background: rgba(26, 26, 26, 0.92);
+  backdrop-filter: blur(8px);
+}
+
 .center-crosshair {
   position: absolute;
   top: 50%;

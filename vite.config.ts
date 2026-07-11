@@ -25,8 +25,9 @@ export default defineConfig({
         globPatterns: ['**/*.{js,css,html,png,svg,woff2}'],
         runtimeCaching: [
           {
-            // Basemap + terrain tiles: serve from cache, refresh in background.
-            urlPattern: /^https:\/\/(tile\.openstreetmap\.org|s3\.amazonaws\.com\/elevation-tiles-prod)\/.*/,
+            // Basemap, satellite, and terrain tiles: cache-first.
+            urlPattern:
+              /^https:\/\/(tile\.openstreetmap\.org|server\.arcgisonline\.com|s3\.amazonaws\.com\/elevation-tiles-prod)\/.*/,
             handler: 'CacheFirst',
             options: {
               cacheName: 'map-tiles',

@@ -11,7 +11,7 @@ Legend: ✅ done · 🟡 partial · ⬜ todo · ➕ ours (no Avenza equivalent)
 | Feature | Avenza tier | Status | Notes |
 |---|---|---|---|
 | Offline maps | Free | ✅ | Save-offline view packs (z6–14) + SW tile cache |
-| Basemap layers (satellite) | Plus | ⬜ | Add satellite/imagery basemap toggle (needs licensed source, e.g. ESRI World Imagery or Sentinel-2) |
+| Basemap layers (satellite) | Plus | ✅ | Esri World Imagery toggle; hillshade stays on top; cached offline by SW |
 | 3D terrain / hillshade | — | ➕ ✅ | Beyond Avenza — terrain toggle + hillshade |
 | Map store / catalogue | Free | ⬜ | Our version: curated wildfire map-pack library (PMTiles regions) |
 | Organize maps in folders/collections | Free | ⬜ | Layer panel folders |
@@ -34,7 +34,7 @@ Legend: ✅ done · 🟡 partial · ⬜ todo · ➕ ours (no Avenza equivalent)
 | Map rotation & compass | Free | 🟡 | Rotation works (drag/ctrl); needs device-compass north-up toggle on mobile |
 | Map orientation lock | Pro | ⬜ | Lock north-up / track-up |
 | Coordinate search (go to coordinates) | Free | ✅ | Pill accepts DD, DMS, UTM, MGRS; flies + drops marker |
-| Map feature search (POI) | Free | ⬜ | Search imported features + gazetteer |
+| Map feature search (POI) | Free | ✅ | Universal search: My Data + imported KML features + live fires; dropdown for multi-match. Place-name gazetteer later |
 | Coordinate formats: DD/DMS/UTM | Free | ✅ | Live center readout w/ crosshair; format cycles, persisted |
 | MGRS / BNG grids | Pro | ✅ | MGRS done (UTM math verified ±1 m vs mgrs lib); BNG skipped (UK-only) |
 | what3words | Free | ⬜ | Optional; API-based, defer |
@@ -87,5 +87,5 @@ Legend: ✅ done · 🟡 partial · ⬜ todo · ➕ ours (no Avenza equivalent)
 6. ~~Navigate-to-placemark~~ ✅ — device-compass / orientation-lock modes still todo (need real device)
 7. ~~Geotagged photos, attribute fields, fire-ops symbol set~~ ✅
 8. ~~Geofences on features~~ ✅ (layer/boundary fences later)
-9. **Satellite basemap**, **feature search**, **folders**.
+9. ~~Satellite basemap + feature search~~ ✅ (folders later)
 10. **GeoTIFF/shapefile import**, **shapefile export**, GeoPDF via server (v1).
