@@ -1,6 +1,15 @@
 import { openDB, type DBSchema } from 'idb'
-import type { FeatureCollection } from 'geojson'
+import type { FeatureCollection, Position } from 'geojson'
 import type { UserFeature } from './features'
+
+export interface RasterOverlay {
+  id: string
+  name: string
+  addedAt: number
+  /** [topLeft, topRight, bottomRight, bottomLeft] in [lon, lat]. */
+  corners: [Position, Position, Position, Position]
+  image: Blob
+}
 
 export interface Overlay {
   id: string
@@ -31,6 +40,11 @@ interface CarmanahDB extends DBSchema {
     value: FeaturePhoto
     indexes: { byFeature: string }
   }
+  // Georeferenced raster imports (e.g. from GeoPDF).
+  rasters: {
+    key: string
+    value: RasterOverlay
+  }
 }
 
 export interface FeaturePhoto {
@@ -40,7 +54,7 @@ export interface FeaturePhoto {
   createdAt: number
 }
 
-const dbPromise = openDB<CarmanahDB>('carmanah-maps', 4, {
+const dbPromise = openDB<CarmanahDB>('carmanah-maps', 5, {
   upgrade(db, oldVersion) {
     if (oldVersion < 1) db.createObjectStore('overlays', { keyPath: 'id' })
     if (oldVersion < 2) db.createObjectStore('kv')
@@ -49,8 +63,22 @@ const dbPromise = openDB<CarmanahDB>('carmanah-maps', 4, {
       const photos = db.createObjectStore('photos', { keyPath: 'id' })
       photos.createIndex('byFeature', 'featureId')
     }
+    if (oldVersion < 5) db.createObjectStore('rasters', { keyPath: 'id' })
   },
 })
+
+export async function listRasters(): Promise<RasterOverlay[]> {
+  const all = await (await dbPromise).getAll('rasters')
+  return all.sort((a, b) => b.addedAt - a.addedAt)
+}
+
+export async function saveRaster(raster: RasterOverlay): Promise<void> {
+  await (await dbPromise).put('rasters', raster)
+}
+
+export async function deleteRaster(id: string): Promise<void> {
+  await (await dbPromise).delete('rasters', id)
+}
 
 export async function listPhotos(featureId: string): Promise<FeaturePhoto[]> {
   const all = await (await dbPromise).getAllFromIndex('photos', 'byFeature', featureId)

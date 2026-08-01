@@ -13,6 +13,7 @@ import {
 import { FEATURE_COLORS, featureLayer, type UserFeature } from './lib/features'
 import type { ExportFormat } from './components/LayerPanel'
 import { fetchKmlFromUrl, parseImportedFile, type ParsedKml } from './lib/kml'
+import { parseGeoPdfRegions, renderGeoPdfRegion } from './lib/geopdf'
 import { fetchLiveFires, type LiveFires } from './lib/livefires'
 import {
   formatArea,
@@ -33,16 +34,20 @@ import {
   deleteOverlay,
   deletePhoto,
   deletePhotosForFeature,
+  deleteRaster,
   getCached,
   listFeatures,
   listOverlays,
   listPhotos,
+  listRasters,
   requestPersistentStorage,
   saveFeature,
   saveOverlay,
   savePhoto,
+  saveRaster,
   setCached,
   type Overlay,
+  type RasterOverlay,
 } from './lib/store'
 import type { Position } from 'geojson'
 
@@ -57,6 +62,7 @@ interface Toast {
 
 export default function App() {
   const [overlays, setOverlays] = useState<Overlay[]>([])
+  const [rasterOverlays, setRasterOverlays] = useState<RasterOverlay[]>([])
   const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set())
   const [scanning, setScanning] = useState(false)
   const [measuring, setMeasuring] = useState(false)
@@ -97,6 +103,7 @@ export default function App() {
   useEffect(() => {
     requestPersistentStorage()
     listFeatures().then(setUserFeatures)
+    listRasters().then(setRasterOverlays)
     listOverlays().then((stored) => {
       setOverlays(stored)
       // Deep link: maps.carmanahwildfire.com?kml=<url> imports on open, so a
@@ -188,19 +195,72 @@ export default function App() {
     [focusOverlay, showToast],
   )
 
+  const addRaster = useCallback(
+    async (name: string, corners: RasterOverlay['corners'], image: Blob) => {
+      const raster: RasterOverlay = {
+        id: crypto.randomUUID(),
+        name,
+        addedAt: Date.now(),
+        corners,
+        image,
+      }
+      await saveRaster(raster)
+      setRasterOverlays((prev) => [raster, ...prev])
+      focusOverlay(raster.id)
+      showToast(`Added "${raster.name}" — saved for offline use`)
+    },
+    [focusOverlay, showToast],
+  )
+
+  const handlePdfImport = useCallback(
+    async (file: File) => {
+      const bytes = new Uint8Array(await file.arrayBuffer())
+      const regions = parseGeoPdfRegions(bytes)
+      if (!regions.length) {
+        showToast(
+          `${file.name}: no embedded georeferencing found — this PDF can't be auto-placed`,
+          true,
+        )
+        return
+      }
+      showToast(`Placing ${file.name}…`)
+      // A file can carry several georeferenced regions (multi-page); import all.
+      for (const region of regions) {
+        const { blob, corners } = await renderGeoPdfRegion(bytes, region)
+        const name = regions.length > 1 ? `${file.name} p${region.pageIndex + 1}` : file.name
+        await addRaster(name.replace(/\.pdf$/i, ''), [
+          corners.topLeft,
+          corners.topRight,
+          corners.bottomRight,
+          corners.bottomLeft,
+        ], blob)
+      }
+    },
+    [addRaster, showToast],
+  )
+
   const handleFiles = useCallback(
     async (files: FileList | null) => {
       if (!files?.length) return
       for (const file of Array.from(files)) {
         try {
-          await addOverlay(await parseImportedFile(file))
+          if (file.name.toLowerCase().endsWith('.pdf')) {
+            await handlePdfImport(file)
+          } else {
+            await addOverlay(await parseImportedFile(file))
+          }
         } catch (err) {
           showToast(`${file.name}: ${(err as Error).message}`, true)
         }
       }
     },
-    [addOverlay, showToast],
+    [addOverlay, handlePdfImport, showToast],
   )
+
+  const handleRemoveRaster = useCallback(async (id: string) => {
+    await deleteRaster(id)
+    setRasterOverlays((prev) => prev.filter((r) => r.id !== id))
+  }, [])
 
   const handleQrResult = useCallback(
     async (text: string) => {
@@ -447,7 +507,7 @@ export default function App() {
         <input
           ref={fileInputRef}
           type="file"
-          accept=".kml,.kmz,.gpx,.zip,.shp"
+          accept=".kml,.kmz,.gpx,.zip,.shp,.pdf"
           multiple
           hidden
           onChange={(e) => {
@@ -460,6 +520,7 @@ export default function App() {
       <div className="map-container">
         <MapView
           overlays={overlays}
+          rasterOverlays={rasterOverlays}
           hiddenIds={hiddenIds}
           focusRequest={focusRequest}
           measureMode={measuring}
@@ -505,9 +566,11 @@ export default function App() {
             <div className="sheet-backdrop" onClick={() => setLayersOpen(false)} />
             <LayerPanel
               overlays={overlays}
+              rasterOverlays={rasterOverlays}
               hiddenIds={hiddenIds}
               onToggle={handleToggle}
               onRemove={handleRemove}
+              onRemoveRaster={handleRemoveRaster}
               onFocus={(id) => {
                 setLayersOpen(false)
                 focusOverlay(id)
@@ -585,7 +648,7 @@ export default function App() {
                   },
                   {
                     icon: '📂',
-                    label: 'Import KML, GPX, or shapefile',
+                    label: 'Import KML, GPX, shapefile, or GeoPDF',
                     action: () => fileInputRef.current?.click(),
                   },
                   {

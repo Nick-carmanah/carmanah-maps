@@ -18,7 +18,7 @@ Legend: ✅ done · 🟡 partial · ⬜ todo · ➕ ours (no Avenza equivalent)
 | Import KML/KMZ | Free | ✅ | Button, drag-drop, QR scan, ?kml= deep link |
 | Import GPX | Free | ✅ | Same import path as KML |
 | Import GeoTIFF | Pro (unlimited) | ⬜ | Client-side: geotiff.js → canvas source; large files need server tiling |
-| Import geospatial PDF / GeoPDF | Pro (unlimited) | ⬜ | Server-side GDAL conversion → tiles (v1) |
+| Import geospatial PDF / GeoPDF | Pro (unlimited) | ✅ | Client-side only, no GDAL/server needed: files with embedded ISO-32000 georeferencing (ArcGIS/ArcMap "include georeference info" exports) parse GCPs from the raw PDF, render via pdf.js, crop to the map region, and drape as a MapLibre image quad. Verified against a real BCWS thermal-scan hotspot map — road alignment matched OSM exactly. Plain/scanned PDFs with no embedded geo data still need the server-GDAL path (rare in practice — most agency map exports carry it) |
 | Import JPG + reference file | Pro | ⬜ | Low priority |
 | Shapefile import | Pro | ✅ | Zipped .shp via shpjs (lazy-loaded); attributes preserved; uppercase NAME shown in popups |
 | Layer visibility management | Free | ✅ | Layer panel show/hide |
@@ -135,4 +135,4 @@ persist in IndexedDB and later sync via accounts).
 7. ~~Geotagged photos, attribute fields, fire-ops symbol set~~ ✅
 8. ~~Geofences on features~~ ✅ (layer/boundary fences later)
 9. ~~Satellite basemap + feature search~~ ✅ (folders later)
-10. 🟡 Shapefile import ✅ — still todo: GeoTIFF import, shapefile export, GeoPDF (server-side)
+10. 🟡 Shapefile import ✅, GeoPDF import ✅ (client-side, no server needed) — still todo: GeoTIFF import, shapefile export

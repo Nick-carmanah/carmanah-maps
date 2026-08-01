@@ -26,6 +26,25 @@ export function centroidOf(coords: Position[]): Position {
   return [sx / coords.length, sy / coords.length]
 }
 
+/** Compute a bounding box for a plain list of [lon, lat] positions. */
+export function boundsOfPositions(positions: Position[]): LngLatBoundsLike | null {
+  if (!positions.length) return null
+  let minX = Infinity
+  let minY = Infinity
+  let maxX = -Infinity
+  let maxY = -Infinity
+  for (const [x, y] of positions) {
+    if (x < minX) minX = x
+    if (y < minY) minY = y
+    if (x > maxX) maxX = x
+    if (y > maxY) maxY = y
+  }
+  return [
+    [minX, minY],
+    [maxX, maxY],
+  ]
+}
+
 /** Compute a bounding box for any GeoJSON FeatureCollection. */
 export function boundsOf(fc: FeatureCollection): LngLatBoundsLike | null {
   let minX = Infinity

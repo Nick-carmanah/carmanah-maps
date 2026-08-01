@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import maplibregl, { Map as MlMap, Popup } from 'maplibre-gl'
 import type { FeatureCollection, Position } from 'geojson'
-import type { Overlay } from '../lib/store'
-import { boundsOf } from '../lib/geo'
+import type { Overlay, RasterOverlay } from '../lib/store'
+import { boundsOf, boundsOfPositions } from '../lib/geo'
 import {
   formatArea,
   formatDistance,
@@ -83,6 +83,7 @@ const DEFAULT_FILL = '#e11d1d'
 
 interface MapViewProps {
   overlays: Overlay[]
+  rasterOverlays: RasterOverlay[]
   hiddenIds: Set<string>
   /** Overlay id the map should fly to (changes trigger a fit). */
   focusRequest: { id: string; nonce: number } | null
@@ -117,6 +118,7 @@ interface MapViewProps {
 
 export default function MapView({
   overlays,
+  rasterOverlays,
   hiddenIds,
   focusRequest,
   measureMode,
@@ -142,6 +144,9 @@ export default function MapView({
   const loadedRef = useRef(false)
   const overlaysRef = useRef<Overlay[]>(overlays)
   overlaysRef.current = overlays
+  const rasterOverlaysRef = useRef<RasterOverlay[]>(rasterOverlays)
+  rasterOverlaysRef.current = rasterOverlays
+  const rasterUrlsRef = useRef<Map<string, string>>(new Map())
   const measureModeRef = useRef(measureMode)
   measureModeRef.current = measureMode
   const [measurePoints, setMeasurePoints] = useState<Position[]>([])
@@ -161,6 +166,8 @@ export default function MapView({
   userFeaturesRef.current = userFeatures
   const hiddenLayersRef = useRef(hiddenLayers)
   hiddenLayersRef.current = hiddenLayers
+  const hiddenIdsRef = useRef(hiddenIds)
+  hiddenIdsRef.current = hiddenIds
   const showGridRef = useRef(showGrid)
   showGridRef.current = showGrid
   const basemapRef = useRef(basemap)
@@ -388,6 +395,7 @@ export default function MapView({
 
     map.on('load', () => {
       loadedRef.current = true
+      syncRasterOverlays(map, rasterOverlaysRef.current, hiddenIdsRef.current, rasterUrlsRef.current)
       addGridLayers(map)
       addLiveFireLayers(map)
       addUserFeatureLayers(map)
@@ -457,6 +465,8 @@ export default function MapView({
       map.remove()
       mapRef.current = null
       scaleRef.current = null
+      for (const url of rasterUrlsRef.current.values()) URL.revokeObjectURL(url)
+      rasterUrlsRef.current.clear()
     }
   }, [])
 
@@ -466,6 +476,13 @@ export default function MapView({
     if (!map || !loadedRef.current) return
     syncOverlays(map, overlays)
   }, [overlays])
+
+  // Add/remove raster (e.g. GeoPDF) image sources when the list changes.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !loadedRef.current) return
+    syncRasterOverlays(map, rasterOverlays, hiddenIds, rasterUrlsRef.current)
+  }, [rasterOverlays, hiddenIds])
 
   // Toggle visibility.
   useEffect(() => {
@@ -480,7 +497,13 @@ export default function MapView({
         }
       }
     }
-  }, [overlays, hiddenIds])
+    for (const raster of rasterOverlays) {
+      const layerId = `raster-${raster.id}`
+      if (map.getLayer(layerId)) {
+        map.setLayoutProperty(layerId, 'visibility', hiddenIds.has(raster.id) ? 'none' : 'visible')
+      }
+    }
+  }, [overlays, rasterOverlays, hiddenIds])
 
   // Fly to an overlay or user feature on request.
   useEffect(() => {
@@ -488,9 +511,9 @@ export default function MapView({
     if (!map || !focusRequest) return
     const overlay = overlaysRef.current.find((o) => o.id === focusRequest.id)
     const feature = userFeaturesRef.current.find((f) => f.id === focusRequest.id)
+    const raster = rasterOverlaysRef.current.find((r) => r.id === focusRequest.id)
     const geojson = overlay?.geojson ?? (feature ? featuresToGeoJSON([feature]) : null)
-    if (!geojson) return
-    const bounds = boundsOf(geojson)
+    const bounds = raster ? boundsOfPositions(raster.corners) : geojson ? boundsOf(geojson) : null
     if (bounds) {
       map.fitBounds(bounds, { padding: 60, maxZoom: 14, duration: 800 })
     }
@@ -881,6 +904,58 @@ function setUserFeatureData(map: MlMap, features: UserFeature[], hiddenLayers: S
   source?.setData(
     featuresToGeoJSON(features.filter((f) => !hiddenLayers.has(featureLayer(f)))),
   )
+}
+
+/** Georeferenced raster imports (GeoPDF crops) render below everything
+ * else — a data underlay the user's own markup and live layers sit on top
+ * of — but above the basemap/terrain, so insert before the first layer
+ * this module adds after the base style ('grid-lines' if present). */
+function syncRasterOverlays(
+  map: MlMap,
+  rasters: RasterOverlay[],
+  hiddenIds: Set<string>,
+  urlCache: Map<string, string>,
+) {
+  const wanted = new Set(rasters.map((r) => `raster-${r.id}`))
+  for (const layer of map.getStyle().layers ?? []) {
+    if (layer.id.startsWith('raster-') && !wanted.has(layer.id)) {
+      map.removeLayer(layer.id)
+      map.removeSource(layer.id)
+      const id = layer.id.slice('raster-'.length)
+      const url = urlCache.get(id)
+      if (url) {
+        URL.revokeObjectURL(url)
+        urlCache.delete(id)
+      }
+    }
+  }
+  const beforeId = map.getLayer('grid-lines') ? 'grid-lines' : undefined
+  for (const raster of rasters) {
+    const sourceId = `raster-${raster.id}`
+    if (map.getSource(sourceId)) continue
+    let url = urlCache.get(raster.id)
+    if (!url) {
+      url = URL.createObjectURL(raster.image)
+      urlCache.set(raster.id, url)
+    }
+    const coordinates = raster.corners.map(([lng, lat]) => [lng, lat]) as [
+      [number, number],
+      [number, number],
+      [number, number],
+      [number, number],
+    ]
+    map.addSource(sourceId, { type: 'image', url, coordinates })
+    map.addLayer(
+      {
+        id: sourceId,
+        type: 'raster',
+        source: sourceId,
+        paint: { 'raster-opacity': 0.92, 'raster-fade-duration': 0 },
+        layout: { visibility: hiddenIds.has(raster.id) ? 'none' : 'visible' },
+      },
+      beforeId,
+    )
+  }
 }
 
 function addGridLayers(map: MlMap) {
