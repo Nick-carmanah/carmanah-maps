@@ -34,52 +34,28 @@ import {
   estimateTileCount,
   MAX_TILES,
 } from '../lib/mappacks'
-
-// Free, cache-friendly sources: OSM raster basemap + AWS open elevation tiles
-// (terrarium encoding) for 3D terrain and hillshade.
-const MAP_STYLE: maplibregl.StyleSpecification = {
-  version: 8,
-  glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
-  sources: {
-    osm: {
-      type: 'raster',
-      tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-      tileSize: 256,
-      maxzoom: 19,
-      attribution: '© OpenStreetMap contributors',
-    },
-    satellite: {
-      type: 'raster',
-      tiles: [
-        'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-      ],
-      tileSize: 256,
-      maxzoom: 19,
-      attribution: 'Imagery: Esri, Maxar, Earthstar Geographics',
-    },
-    terrain: {
-      type: 'raster-dem',
-      tiles: ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],
-      encoding: 'terrarium',
-      tileSize: 256,
-      maxzoom: 14,
-      attribution: 'Terrain: Mapzen/AWS Open Data',
-    },
-  },
-  layers: [
-    { id: 'osm', type: 'raster', source: 'osm' },
-    { id: 'satellite', type: 'raster', source: 'satellite', layout: { visibility: 'none' } },
-    {
-      id: 'hillshade',
-      type: 'hillshade',
-      source: 'terrain',
-      paint: { 'hillshade-exaggeration': 0.35 },
-    },
-  ],
-}
+import { BASEMAP_LAYER_IDS, MAP_STYLE } from './basemap'
 
 const DEFAULT_STROKE = '#e11d1d'
 const DEFAULT_FILL = '#e11d1d'
+
+/** Light edge under near-black lines (machine guard, dozer lines in agency
+ * KMLs) so they stay visible on the dark basemap; transparent for the rest. */
+function darkLineHalo(color: unknown): maplibregl.ExpressionSpecification {
+  const rgba = ['to-rgba', ['to-color', color, DEFAULT_STROKE]]
+  const luminance = [
+    '+',
+    ['*', 0.299, ['at', 0, rgba]],
+    ['*', 0.587, ['at', 1, rgba]],
+    ['*', 0.114, ['at', 2, rgba]],
+  ]
+  return [
+    'case',
+    ['<', luminance, 70],
+    'rgba(255,255,255,0.55)',
+    'rgba(0,0,0,0)',
+  ] as unknown as maplibregl.ExpressionSpecification
+}
 
 interface MapViewProps {
   overlays: Overlay[]
@@ -189,12 +165,7 @@ export default function MapView({
   useEffect(() => {
     const map = mapRef.current
     if (!map || !loadedRef.current) return
-    map.setLayoutProperty('osm', 'visibility', basemap === 'streets' ? 'visible' : 'none')
-    map.setLayoutProperty(
-      'satellite',
-      'visibility',
-      basemap === 'satellite' ? 'visible' : 'none',
-    )
+    showBasemap(map, basemap)
   }, [basemap])
 
   // Tools sheet → "Find by coordinates" opens the search pill.
@@ -410,10 +381,7 @@ export default function MapView({
         map.setLayoutProperty('live-perim-fill', 'visibility', 'none')
         map.setLayoutProperty('live-perim-line', 'visibility', 'none')
       }
-      if (basemapRef.current === 'satellite') {
-        map.setLayoutProperty('osm', 'visibility', 'none')
-        map.setLayoutProperty('satellite', 'visibility', 'visible')
-      }
+      if (basemapRef.current === 'satellite') showBasemap(map, 'satellite')
       setUserFeatureData(map, userFeaturesRef.current, hiddenLayersRef.current)
       ;(map.getSource('fences') as maplibregl.GeoJSONSource | undefined)?.setData(
         fenceShapes(userFeaturesRef.current),
@@ -490,7 +458,7 @@ export default function MapView({
     if (!map || !loadedRef.current) return
     for (const overlay of overlays) {
       const visible = hiddenIds.has(overlay.id) ? 'none' : 'visible'
-      for (const suffix of ['fill', 'line', 'point', 'label']) {
+      for (const suffix of ['fill', 'halo', 'line', 'point', 'label']) {
         const layerId = `ov-${overlay.id}-${suffix}`
         if (map.getLayer(layerId)) {
           map.setLayoutProperty(layerId, 'visibility', visible)
@@ -840,6 +808,13 @@ function addUserFeatureLayers(map: MlMap) {
     paint: { 'fill-color': ['get', 'color'], 'fill-opacity': 0.25 },
   })
   map.addLayer({
+    id: 'uf-halo',
+    type: 'line',
+    source: 'user-features',
+    filter: ['in', ['geometry-type'], ['literal', ['Polygon', 'LineString']]],
+    paint: { 'line-color': darkLineHalo(['get', 'color']), 'line-width': 6 },
+  })
+  map.addLayer({
     id: 'uf-line',
     type: 'line',
     source: 'user-features',
@@ -860,7 +835,7 @@ function addUserFeatureLayers(map: MlMap) {
       'circle-radius': 7,
       'circle-color': ['get', 'color'],
       'circle-stroke-width': 2,
-      'circle-stroke-color': '#1a1a1a',
+      'circle-stroke-color': '#ffffff',
     },
   })
   // …fire-ops symbol icon for pins that have one.
@@ -904,6 +879,12 @@ function setUserFeatureData(map: MlMap, features: UserFeature[], hiddenLayers: S
   source?.setData(
     featuresToGeoJSON(features.filter((f) => !hiddenLayers.has(featureLayer(f)))),
   )
+}
+
+function showBasemap(map: MlMap, basemap: 'streets' | 'satellite') {
+  const streets = basemap === 'streets' ? 'visible' : 'none'
+  for (const id of BASEMAP_LAYER_IDS) map.setLayoutProperty(id, 'visibility', streets)
+  map.setLayoutProperty('satellite', 'visibility', basemap === 'satellite' ? 'visible' : 'none')
 }
 
 /** Georeferenced raster imports (GeoPDF crops) render below everything
@@ -965,7 +946,7 @@ function addGridLayers(map: MlMap) {
     id: 'grid-lines',
     type: 'line',
     source: 'grid',
-    paint: { 'line-color': '#374151', 'line-width': 0.8, 'line-opacity': 0.55 },
+    paint: { 'line-color': '#e5e7eb', 'line-width': 0.8, 'line-opacity': 0.35 },
   })
   map.addLayer({
     id: 'grid-refs',
@@ -978,9 +959,9 @@ function addGridLayers(map: MlMap) {
       'text-allow-overlap': false,
     },
     paint: {
-      'text-color': '#374151',
-      'text-opacity': 0.75,
-      'text-halo-color': '#ffffff',
+      'text-color': '#e5e7eb',
+      'text-opacity': 0.8,
+      'text-halo-color': '#000000',
       'text-halo-width': 1,
     },
   })
@@ -1106,7 +1087,7 @@ function syncOverlays(map: MlMap, overlays: Overlay[]) {
   // Remove layers/sources for deleted overlays.
   for (const layer of map.getStyle().layers ?? []) {
     if (layer.id.startsWith('ov-')) {
-      const sourceId = layer.id.replace(/-(fill|line|point|label)$/, '')
+      const sourceId = layer.id.replace(/-(fill|halo|line|point|label)$/, '')
       if (!wantedSources.has(sourceId)) map.removeLayer(layer.id)
     }
   }
@@ -1138,6 +1119,16 @@ function syncOverlays(map: MlMap, overlays: Overlay[]) {
       paint: {
         'fill-color': ['coalesce', ['get', 'fill'], DEFAULT_FILL],
         'fill-opacity': ['coalesce', ['get', 'fill-opacity'], 0.25],
+      },
+    }, beforeId)
+    map.addLayer({
+      id: `${sourceId}-halo`,
+      type: 'line',
+      source: sourceId,
+      filter: ['in', ['geometry-type'], ['literal', ['Polygon', 'LineString']]],
+      paint: {
+        'line-color': darkLineHalo(['coalesce', ['get', 'stroke'], DEFAULT_STROKE]),
+        'line-width': ['+', ['coalesce', ['get', 'stroke-width'], 2], 3],
       },
     }, beforeId)
     map.addLayer({

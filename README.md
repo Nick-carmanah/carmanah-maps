@@ -6,8 +6,10 @@ workflows, built to pair with the Carmanah Wildfire crew platform
 
 ## What works today (MVP)
 
-- **Map engine** — MapLibre GL JS, OpenStreetMap basemap with terrain hillshade,
-  full **3D terrain** toggle (mountain icon) using AWS open elevation tiles.
+- **Map engine** — MapLibre GL JS with a grey-and-black vector basemap
+  (OpenFreeMap "Dark", with tracks, FSRs, creeks and labels lifted for field
+  use) under terrain hillshade, full **3D terrain** toggle (mountain icon)
+  using AWS open elevation tiles.
 - **KML / KMZ import** — "Import KML" button or drag-and-drop. Styles (colors,
   line widths) carry over from the KML. Tap any feature for its name/description.
 - **Fire QR codes** — "Scan fire QR" opens the camera; scanning a fire's QR code
@@ -20,8 +22,9 @@ workflows, built to pair with the Carmanah Wildfire crew platform
 - **Measure** — tap-to-measure distance (km) and area (hectares) with
   geodesic math; Undo/Done chip.
 - **Save offline** — downloads all basemap + terrain tiles for the current
-  view (z6–14) into the service-worker tile cache; two-tap confirm shows tile
-  count and size estimate first. Refuses areas over ~3000 tiles.
+  view (z6–14) plus label fonts and icons into the service-worker tile cache;
+  vector tiles stay sharp past z14. Two-tap confirm shows tile count and size
+  estimate first. Refuses areas over ~3000 tiles.
 - **Offline** — imported maps persist in IndexedDB across restarts; visited map
   tiles are cached by the service worker; the app shell is a fully installable
   PWA (production build).
@@ -65,8 +68,17 @@ maps.carmanahwildfire.com once DNS is pointed.
 
 - Google Earth imagery can't legally be cached offline; 3D terrain here is
   self-hosted-friendly. KML exports open directly in Google Earth when online.
-- Basemap tiles currently come from openstreetmap.org (fine for dev; production
-  needs its own tile source or map packs — OSM's tile policy disallows heavy
-  app traffic).
+- The basemap comes from OpenFreeMap's public instance: free, no API key,
+  commercial use allowed. Its [terms](https://openfreemap.org/tos/) cap each
+  offline download at 3,000 tiles / 50 MB and 4 parallel requests (Save
+  offline stays inside both) and ask for a User-Agent naming the app, which a
+  web page can't set; a Capacitor build can. If the public instance goes away,
+  the same tiles can be self-hosted from their weekly planet downloads with no
+  style changes.
+- `src/map/openfreemap-dark.json` is a copy of
+  https://tiles.openfreemap.org/styles/dark (refresh by re-downloading).
+  Tile URLs carry a weekly build version; the service worker and
+  `src/lib/mappacks.ts` strip it from cache keys so saved areas keep working
+  after it rolls over.
 - `src/main.tsx` shims `requestAnimationFrame` with a timer fallback so the map
   keeps loading in backgrounded/embedded tabs.
