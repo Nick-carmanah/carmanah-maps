@@ -10,8 +10,8 @@ Legend: ✅ done · 🟡 partial · ⬜ todo · ➕ ours (no Avenza equivalent)
 
 | Feature | Avenza tier | Status | Notes |
 |---|---|---|---|
-| Offline maps | Free | ✅ | Save-offline view packs (z6–14 vector basemap + terrain, sharp at any zoom) + SW tile cache |
-| Basemap layers (satellite) | Plus | ✅ | Grey-and-black OpenFreeMap vector basemap ↔ Esri World Imagery toggle; hillshade stays on top; cached offline by SW |
+| Offline maps | Free | ✅ | Save-offline view packs (z6–14) + SW tile cache |
+| Basemap layers (satellite) | Plus | ✅ | Esri World Imagery toggle; hillshade stays on top; cached offline by SW |
 | 3D terrain / hillshade | — | ➕ ✅ | Beyond Avenza — terrain toggle + hillshade |
 | Map store / catalogue | Free | ⬜ | Our version: curated wildfire map-pack library (PMTiles regions) |
 | Organize maps in folders/collections | Free | ✅ | Auto-layers: features group by symbol/track type (Danger trees, Guards, Patrols…); manual override in sheet |

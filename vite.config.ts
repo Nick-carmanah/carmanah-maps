@@ -27,20 +27,9 @@ export default defineConfig({
         globPatterns: ['**/*.{js,css,html,png,svg,woff2}'],
         runtimeCaching: [
           {
-            // Basemap TileJSON: network-first so new weekly tile builds are
-            // picked up; the cached copy lets the map start offline.
-            urlPattern: /^https:\/\/tiles\.openfreemap\.org\/planet$/,
-            handler: 'NetworkFirst',
-            options: {
-              cacheName: 'map-tiles',
-              networkTimeoutSeconds: 4,
-              cacheableResponse: { statuses: [0, 200] }
-            }
-          },
-          {
-            // Basemap tiles, fonts and icons, satellite, and terrain tiles: cache-first.
+            // Basemap, satellite, and terrain tiles: cache-first.
             urlPattern:
-              /^https:\/\/(tiles\.openfreemap\.org|server\.arcgisonline\.com|s3\.amazonaws\.com\/elevation-tiles-prod)\/.*/,
+              /^https:\/\/(tile\.openstreetmap\.org|server\.arcgisonline\.com|s3\.amazonaws\.com\/elevation-tiles-prod)\/.*/,
             handler: 'CacheFirst',
             options: {
               cacheName: 'map-tiles',
@@ -50,19 +39,7 @@ export default defineConfig({
                 maxAgeSeconds: 60 * 60 * 24 * 90,
                 purgeOnQuotaError: true,
               },
-              cacheableResponse: { statuses: [0, 200] },
-              plugins: [
-                {
-                  // Same key as tileCacheKey() in src/lib/mappacks.ts: drop the
-                  // weekly build version from basemap tile URLs so saved areas
-                  // keep matching after it rolls over.
-                  cacheKeyWillBeUsed: async ({ request }) =>
-                    request.url.replace(
-                      /^(https:\/\/tiles\.openfreemap\.org\/planet)\/[^/]+(\/\d+\/\d+\/\d+\.pbf)$/,
-                      '$1$2',
-                    ),
-                },
-              ],
+              cacheableResponse: { statuses: [0, 200] }
             }
           }
         ]
