@@ -351,15 +351,21 @@ export default function MapView({
     scaleRef.current = scale
     map.addControl(scale, 'bottom-left')
 
-    // Throttled center readout for the coordinate pill.
+    // Center readout for the coordinate pill: throttled while moving, then
+    // exact once the map stops — the last throttled update can trail the
+    // final position by metres, and crews read locations off the crosshair.
+    const updateCenter = () => {
+      const c = map.getCenter()
+      setCenter([c.lng, c.lat])
+    }
     let lastCenterUpdate = 0
     map.on('move', () => {
       const now = performance.now()
       if (now - lastCenterUpdate < 150) return
       lastCenterUpdate = now
-      const c = map.getCenter()
-      setCenter([c.lng, c.lat])
+      updateCenter()
     })
+    map.on('moveend', updateCenter)
 
     // UTM grid follows the view.
     map.on('moveend', () => updateGrid(map, showGridRef.current))
