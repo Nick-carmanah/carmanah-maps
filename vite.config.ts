@@ -5,6 +5,19 @@ import { VitePWA } from 'vite-plugin-pwa'
 export default defineConfig({
   // GitHub Pages serves the app under /carmanah-maps/; local dev stays at /.
   base: process.env.GITHUB_ACTIONS ? '/carmanah-maps/' : '/',
+  // The pdf.js worker (src/lib/pdfjs-worker.ts). If a real worker can't
+  // start, pdf.js falls back to importing it on the page and reading its
+  // WorkerMessageHandler export, so build it as an ES module and keep that
+  // export (Vite drops worker exports by default).
+  worker: {
+    format: 'es',
+    plugins: () => [
+      {
+        name: 'keep-worker-exports',
+        options: (options) => ({ ...options, preserveEntrySignatures: 'strict' }),
+      },
+    ],
+  },
   plugins: [
     react(),
     VitePWA({
@@ -24,8 +37,8 @@ export default defineConfig({
         ]
       },
       workbox: {
-        // mjs: the pdf.js worker (assets/pdf.worker.min-*.mjs). Without it,
-        // GeoPDF import fails offline.
+        // The pdf.js worker (assets/pdfjs-worker-*.js) must be in here, or
+        // GeoPDF import fails offline. mjs: in case a future build emits one.
         globPatterns: ['**/*.{js,mjs,css,html,png,svg,woff2}'],
         runtimeCaching: [
           {

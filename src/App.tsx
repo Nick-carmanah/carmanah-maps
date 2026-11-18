@@ -225,8 +225,10 @@ export default function App() {
       }
       showToast(`Placing ${file.name}…`)
       // A file can carry several georeferenced regions (multi-page); import all.
+      const drawErrors = new Set<string>()
       for (const region of regions) {
-        const { blob, corners } = await renderGeoPdfRegion(bytes, region)
+        const rendered = await renderGeoPdfRegion(bytes, region)
+        const { blob, corners } = rendered
         const name = regions.length > 1 ? `${file.name} p${region.pageIndex + 1}` : file.name
         await addRaster(name.replace(/\.pdf$/i, ''), [
           corners.topLeft,
@@ -234,6 +236,15 @@ export default function App() {
           corners.bottomRight,
           corners.bottomLeft,
         ], blob)
+        rendered.drawErrors.forEach((e) => drawErrors.add(e))
+      }
+      // After the loop, so a later page's "Added" toast can't cover it.
+      if (drawErrors.size) {
+        console.warn(`${file.name}: pdf.js skipped errors while drawing`, [...drawErrors])
+        showToast(
+          `${file.name}: saved, but part of the map didn't draw (${[...drawErrors][0]}). Text or layers may be missing. Update the phone's software, or report this map.`,
+          true,
+        )
       }
     },
     [addRaster, showToast],
