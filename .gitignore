@@ -3,3 +3,6 @@ dist/
 dev-dist/
 *.local
 .DS_Store
+
+# Local test files (Avenza exports, agency maps) — never commit; repo is public
+samples/
