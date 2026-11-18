@@ -252,6 +252,28 @@ describe('reading by range', () => {
   })
 })
 
+describe('without native base64 (iOS 15–18.1; Node before 25)', () => {
+  beforeEach(() => vi.resetModules())
+
+  it('writes and reads the same bytes through the btoa/atob fallback', async () => {
+    const proto = Uint8Array.prototype as unknown as Record<string, unknown>
+    const ctor = Uint8Array as unknown as Record<string, unknown>
+    const saved = { to: proto.toBase64, from: ctor.fromBase64 }
+    delete proto.toBase64
+    delete ctor.fromBase64
+    try {
+      const { files } = await nativeStore({ rangeMode: '200' }) // offset reads decode base64 too
+      const data = bytes(5 * 1024 * 1024 + 17)
+      await files.write('b.bin', [data])
+      expect(new Uint8Array(await files.readRange('b.bin', 4 * 1024 * 1024 - 3, 10))).toEqual(data.subarray(4 * 1024 * 1024 - 3, 4 * 1024 * 1024 + 7))
+      expect(new Uint8Array(await (await files.read('b.bin'))!.arrayBuffer())).toEqual(data)
+    } finally {
+      if (saved.to) proto.toBase64 = saved.to
+      if (saved.from) ctor.fromBase64 = saved.from
+    }
+  })
+})
+
 describe('removing', () => {
   beforeEach(() => vi.resetModules())
 
