@@ -263,6 +263,7 @@ pins the crew app's versions: Capacitor 8.6.0, Filesystem 8.1.5, Share
 | Cancel | "Share canceled" came back, and the copy was deleted at once |
 | Save to Files | `activityType` `SaveToFiles`. The file in Files is byte-identical to the copy, which was deleted 2 minutes later. |
 | Share an 11.7 MB map | 1 `writeFile` + 3 `appendFile`. Byte-identical in Files, and every PDF cross-reference offset is intact. |
+| **‹ Home** | Back to the app's root page |
 
 Not proved here:
 
