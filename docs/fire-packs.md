@@ -213,6 +213,10 @@ someone over AirDrop.
 
 ## 5. In the app
 
+| Size before downloading (website) | Lost signal mid-download (iOS app) | Drawn with no network (website) |
+|---|---|---|
+| ![The Offline maps sheet: fire C40983 chosen with a 5 km buffer, "9.8 MB · 2,116 tiles", a Download button, and a ready-made pack below](fire-packs/web-size-before-download.jpg) | ![The sheet in the iOS app: "Waiting for signal… 28%" with Pause and Delete](fire-packs/ios-waiting-for-signal.jpg) | ![The fire area at zoom 9.5 with roads, lakes, hillshade and the fire perimeter, drawn while no internet host could be reached](fire-packs/web-offline-fire.jpg) |
+
 **Offline maps** (the button above the map's bottom-right corner, in the
 website and the crew app alike) opens a sheet with the packs on this phone
 and **Download an area**:
