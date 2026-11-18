@@ -1,5 +1,7 @@
 import type { Position } from 'geojson'
 import type { PDFArray as PDFArrayType } from 'pdf-lib'
+import type { PdfjsWarningMessage } from './pdfjs-worker-setup'
+import pdfjsWorkerUrl from './pdfjs-worker?worker&url'
 
 /**
  * Geospatial PDF support (ISO 32000-2 §12.9). Maps exported from
@@ -253,6 +255,52 @@ export interface RenderedGeoPdf {
   /** Cropped raster of just the georeferenced region, as a Blob. */
   blob: Blob
   corners: GeoPdfRegion['corners']
+  /**
+   * Errors pdf.js skipped over while drawing (its "ignoring errors"
+   * warnings), without repeats. If there are any, parts of the map, often
+   * its text, may be missing, and the import should say so.
+   */
+  drawErrors: string[]
+}
+
+// Blank-render check. A failed render is one flat colour: white (pdf.js paints
+// the page white first) or transparent (the canvas itself failed). But a real,
+// sparse map, such as a thin perimeter on a white page, can also be over 99%
+// one colour. So that share alone only refuses a map that is essentially flat;
+// below that, the map is refused only if pdf.js also reported a draw error.
+/** Refuse the map when at least this share of it is one colour. */
+const FLAT_RENDER_SHARE = 0.999
+/** Refuse the map when more than this share is one colour AND pdf.js skipped something while drawing. */
+const NEARLY_BLANK_SHARE = 0.99
+
+/** Share (0–1) of pixels that are exactly the image's most common colour. */
+export function dominantColourShare(rgba: Uint8ClampedArray): number {
+  const px = new Uint32Array(rgba.buffer, rgba.byteOffset, rgba.length >>> 2)
+  if (!px.length) return 1
+  // Find the most common colour in an even sample, then count it exactly.
+  const step = Math.max(1, Math.floor(px.length / 4096))
+  const seen = new Map<number, number>()
+  let mode = px[0]
+  let best = 0
+  for (let i = 0; i < px.length; i += step) {
+    const n = (seen.get(px[i]) ?? 0) + 1
+    seen.set(px[i], n)
+    if (n > best) [mode, best] = [px[i], n]
+  }
+  let same = 0
+  for (let i = 0; i < px.length; i++) if (px[i] === mode) same++
+  return same / px.length
+}
+
+function context2d(canvas: HTMLCanvasElement): CanvasRenderingContext2D {
+  const ctx = canvas.getContext('2d')
+  // Safari gives null when a canvas is too big or the page is out of canvas memory.
+  if (!ctx) {
+    throw new Error(
+      `couldn't get a ${canvas.width}×${canvas.height} canvas to draw the map on. Close other apps and try again.`,
+    )
+  }
+  return ctx
 }
 
 /** Render a georeferenced region's page and crop to just its map area. */
@@ -266,47 +314,79 @@ export async function renderGeoPdfRegion(
   // fails on older iPhones (e.g. XS/XR, which stop at iOS 18). The legacy
   // build polyfills them. The page module and the worker must match.
   const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs')
-  pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-    'pdfjs-dist/legacy/build/pdf.worker.min.mjs',
-    import.meta.url,
-  ).toString()
+  // Our worker entry (pdfjs-worker.ts): the legacy pdf.js worker, plus the
+  // polyfill it needs on iOS 16.4–17.3 and a hook that forwards its warnings.
+  pdfjs.GlobalWorkerOptions.workerSrc = pdfjsWorkerUrl
+  const worker = new pdfjs.PDFWorker()
 
-  // pdf.js detaches/transfers the buffer — hand it a private copy.
-  const loadingTask = pdfjs.getDocument({ data: bytes.slice() })
-  const doc = await loadingTask.promise
-  const page = await doc.getPage(region.pageIndex + 1)
+  // e.g. 'getOperatorList - ignoring errors during "GetOperatorList: page 0"
+  // task: "TypeError: buffer.transferToFixedLength is not a function".'
+  const drawErrors = new Set<string>()
+  const onWorkerMessage = (e: MessageEvent) => {
+    const text = (e.data as Partial<PdfjsWarningMessage> | null)?.pdfjsWarning
+    if (typeof text !== 'string' || !text.includes('ignoring errors')) return
+    drawErrors.add((/: "(.*)"\.?$/.exec(text)?.[1] ?? text).slice(0, 120))
+  }
 
-  const [xMin, yMin, xMax, yMax] = region.bboxPt
-  const TARGET_LONG_EDGE_PX = 2200
-  const scale = TARGET_LONG_EDGE_PX / Math.max(xMax - xMin, yMax - yMin)
+  try {
+    await worker.promise
+    worker.port.addEventListener('message', onWorkerMessage)
+    // pdf.js detaches/transfers the buffer — hand it a private copy.
+    const loadingTask = pdfjs.getDocument({ data: bytes.slice(), worker })
+    try {
+      const doc = await loadingTask.promise
+      const page = await doc.getPage(region.pageIndex + 1)
 
-  // Render unrotated: the bbox is in unrotated user space.
-  const viewport = page.getViewport({ scale, rotation: 0 })
-  const fullCanvas = document.createElement('canvas')
-  fullCanvas.width = Math.ceil(viewport.width)
-  fullCanvas.height = Math.ceil(viewport.height)
-  const ctx = fullCanvas.getContext('2d')!
-  await page.render({ canvas: fullCanvas, canvasContext: ctx, viewport }).promise
+      const [xMin, yMin, xMax, yMax] = region.bboxPt
+      const TARGET_LONG_EDGE_PX = 2200
+      const scale = TARGET_LONG_EDGE_PX / Math.max(xMax - xMin, yMax - yMin)
 
-  // Let pdf.js map user space → canvas (handles MediaBox/CropBox offsets and
-  // the y-flip), rather than assuming the page origin is at 0,0.
-  const [ax, ay] = viewport.convertToViewportPoint(xMin, yMax)
-  const [bx, by] = viewport.convertToViewportPoint(xMax, yMin)
-  const cropX = Math.min(ax, bx)
-  const cropY = Math.min(ay, by)
-  const cropW = Math.abs(bx - ax)
-  const cropH = Math.abs(by - ay)
+      // Render unrotated: the bbox is in unrotated user space.
+      const viewport = page.getViewport({ scale, rotation: 0 })
+      const fullCanvas = document.createElement('canvas')
+      fullCanvas.width = Math.ceil(viewport.width)
+      fullCanvas.height = Math.ceil(viewport.height)
+      const ctx = context2d(fullCanvas)
+      await page.render({ canvas: fullCanvas, canvasContext: ctx, viewport }).promise
 
-  const cropCanvas = document.createElement('canvas')
-  cropCanvas.width = Math.round(cropW)
-  cropCanvas.height = Math.round(cropH)
-  cropCanvas
-    .getContext('2d')!
-    .drawImage(fullCanvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH)
+      // Let pdf.js map user space → canvas (handles MediaBox/CropBox offsets and
+      // the y-flip), rather than assuming the page origin is at 0,0.
+      const [ax, ay] = viewport.convertToViewportPoint(xMin, yMax)
+      const [bx, by] = viewport.convertToViewportPoint(xMax, yMin)
+      const cropX = Math.min(ax, bx)
+      const cropY = Math.min(ay, by)
+      const cropW = Math.abs(bx - ax)
+      const cropH = Math.abs(by - ay)
 
-  const blob: Blob = await new Promise((resolve, reject) =>
-    cropCanvas.toBlob((b) => (b ? resolve(b) : reject(new Error('toBlob failed'))), 'image/png'),
-  )
-  await loadingTask.destroy()
-  return { blob, corners: region.corners }
+      const cropCanvas = document.createElement('canvas')
+      cropCanvas.width = Math.round(cropW)
+      cropCanvas.height = Math.round(cropH)
+      const cropCtx = context2d(cropCanvas)
+      cropCtx.drawImage(fullCanvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH)
+      // Free the full-page canvas now: iOS caps a page's total canvas memory.
+      fullCanvas.width = fullCanvas.height = 0
+
+      // A blank map would look like a successful import and leave a crew with
+      // nothing in the field. Refuse to save it (see FLAT_RENDER_SHARE).
+      const pixels = cropCtx.getImageData(0, 0, cropCanvas.width, cropCanvas.height).data
+      const share = dominantColourShare(pixels)
+      if (share >= FLAT_RENDER_SHARE || (share > NEARLY_BLANK_SHARE && drawErrors.size > 0)) {
+        const how = share >= FLAT_RENDER_SHARE ? 'blank' : 'almost blank'
+        const why = drawErrors.size ? ` (${[...drawErrors][0]})` : ''
+        throw new Error(
+          `the map came out ${how}${why}, so it wasn't saved. Update the phone's software (iOS or Android) and try again; if it's still blank, report this map.`,
+        )
+      }
+
+      const blob: Blob = await new Promise((resolve, reject) =>
+        cropCanvas.toBlob((b) => (b ? resolve(b) : reject(new Error('toBlob failed'))), 'image/png'),
+      )
+      return { blob, corners: region.corners, drawErrors: [...drawErrors] }
+    } finally {
+      await loadingTask.destroy()
+    }
+  } finally {
+    worker.port?.removeEventListener('message', onWorkerMessage)
+    worker.destroy()
+  }
 }
