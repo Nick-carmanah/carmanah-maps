@@ -24,7 +24,9 @@ export default defineConfig({
         ]
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,png,svg,woff2}'],
+        // mjs: the pdf.js worker (assets/pdf.worker.min-*.mjs). Without it,
+        // GeoPDF import fails offline.
+        globPatterns: ['**/*.{js,mjs,css,html,png,svg,woff2}'],
         runtimeCaching: [
           {
             // Basemap TileJSON: network-first so new weekly tile builds are
