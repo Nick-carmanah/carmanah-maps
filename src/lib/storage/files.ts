@@ -1,25 +1,40 @@
 import { openOwnerDb } from './owner-db'
+import { isOwnerId } from './owner'
+import {
+  base64ToBytes,
+  bytesToBase64,
+  filesystemPlugin,
+  isNotFound,
+  LIBRARY_NO_CLOUD,
+  nativeCapacitor,
+  type CapacitorGlobal,
+  type FilesystemPlugin,
+} from './capacitor'
 
 /**
  * Where the map page keeps file bytes: original PDFs, rendered maps, and
- * later tile packs and photos. One interface, several homes:
+ * later tile packs and photos. One interface, several homes, chosen per
+ * person (openFileStore below):
  *
+ *  - `native`: in the crew app, Capacitor Filesystem in
+ *    `Directory.LibraryNoCloud` (iOS Library/NoCloud: not backed up, not in
+ *    the Files app, never purged), under `maps/<ownerId>/`. Reached through
+ *    `window.Capacitor` (./capacitor.ts). Reads ranges with
+ *    `fetch(convertFileSrc(uri))` and a Range header, checking for `206`,
+ *    else `Filesystem.readFile({ offset, length })`
+ *    (docs/native-storage-spike.md §5).
  *  - `opfs`: the browser's Origin Private File System, under `maps/<ownerId>/`.
  *    Real files: written in a stream, read back by byte range without
  *    loading the whole file. Used where the browser can write OPFS files
  *    from the page (Chrome/Android, Firefox, Safari 26+).
  *  - `idb`: IndexedDB Blobs in `carmanah-maps.<ownerId>`, for browsers
  *    without that (Safari before 26).
- *  - `native` (not built yet, rebuild plan Phase 0.3): Capacitor Filesystem,
- *    `Directory.LibraryNoCloud` + `maps/<ownerId>/`, reached through
- *    `window.Capacitor`. It reads ranges with `fetch(convertFileSrc(uri))` and
- *    a Range header (docs/native-storage-spike.md §5). Its `read` should
- *    avoid loading big files whole; sharing would pass the file's native URI
- *    to the Share plugin instead.
  *
  * Paths are relative to the owner's folder and use `/` between parts, e.g.
  * `library/originals/<id>.pdf`. Website storage is best-effort: the browser
- * may clear it under storage pressure, so the UI says so.
+ * may clear it under storage pressure, so the UI says so. `maps/_packs/`
+ * holds the shared basemap packs: no owner id can start with `_`, so no
+ * owner's folder is ever that one.
  */
 export interface FileStore {
   readonly backend: 'opfs' | 'idb' | 'native'
@@ -48,7 +63,11 @@ export function pathSegments(path: string): string[] {
   return parts
 }
 
-class MissingFileError extends Error {
+/** The folder every app file lives under: `maps/<ownerId>/` per person, `maps/_packs/` shared. */
+export const FILES_ROOT = 'maps'
+export const SHARED_PACKS_DIR = '_packs'
+
+export class MissingFileError extends Error {
   constructor(path: string) {
     super(`file not found: ${path}`)
   }
@@ -65,7 +84,7 @@ class OpfsFileStore implements FileStore {
 
   static async open(ownerId: string): Promise<OpfsFileStore> {
     const top = await navigator.storage.getDirectory()
-    const maps = await top.getDirectoryHandle('maps', { create: true })
+    const maps = await top.getDirectoryHandle(FILES_ROOT, { create: true })
     return new OpfsFileStore(await maps.getDirectoryHandle(ownerId, { create: true }))
   }
 
@@ -227,21 +246,291 @@ class IdbFileStore implements FileStore {
   }
 }
 
+
+// ---------- Native (Capacitor Filesystem) ----------
+
+/** Bytes per writeFile/appendFile call (base64 over the bridge; the spike used 4 MB). */
+const WRITE_CHUNK = 4 * 1024 * 1024
+/**
+ * Bytes per range request when reading a whole file. Capacitor's iOS scheme
+ * handler reads on the main thread, so keep each request small.
+ */
+const READ_CHUNK = 1024 * 1024
+
+/** Cut parts into chunks of at most `size` bytes, in order, reading Blobs a slice at a time. */
+async function* chunksOf(parts: BlobPart[], size: number): AsyncGenerator<Uint8Array> {
+  let pending: Uint8Array[] = []
+  let pendingBytes = 0
+  const flush = () => {
+    const out = new Uint8Array(pendingBytes)
+    let at = 0
+    for (const p of pending) {
+      out.set(p, at)
+      at += p.length
+    }
+    pending = []
+    pendingBytes = 0
+    return out
+  }
+  async function* add(bytes: Uint8Array): AsyncGenerator<Uint8Array> {
+    let rest = bytes
+    while (rest.length) {
+      const take = Math.min(rest.length, size - pendingBytes)
+      pending.push(rest.subarray(0, take))
+      pendingBytes += take
+      rest = rest.subarray(take)
+      if (pendingBytes === size) yield flush()
+    }
+  }
+  for (const part of parts) {
+    if (part instanceof Blob) {
+      for (let at = 0; at < part.size; at += size) {
+        yield* add(new Uint8Array(await part.slice(at, at + size).arrayBuffer()))
+      }
+    } else if (typeof part === 'string') {
+      yield* add(new TextEncoder().encode(part))
+    } else if (part instanceof ArrayBuffer) {
+      yield* add(new Uint8Array(part))
+    } else {
+      yield* add(new Uint8Array(part.buffer, part.byteOffset, part.byteLength))
+    }
+  }
+  if (pendingBytes) yield flush()
+}
+
+/**
+ * Does a range response hold exactly the bytes asked for? Capacitor's iOS
+ * handler answers `206` with `Content-Range: bytes a-b/total`, where `b` may
+ * overstate past the end of the file (the bytes are right). Checking the
+ * start and the length also catches a server that answers 206 but sends the
+ * file from byte 0 (unverified on Android, spike §7).
+ */
+export function rangeIsExact(contentRange: string | null, offset: number, length: number, got: number): boolean {
+  if (got > length) return false
+  const m = contentRange ? /^bytes (\d+)-(\d+)\/(\d+|\*)$/.exec(contentRange.trim()) : null
+  if (!m) return contentRange === null && got === length
+  if (Number(m[1]) !== offset) return false
+  if (m[3] === '*') return got === length
+  return got === Math.max(0, Math.min(length, Number(m[3]) - offset))
+}
+
+class NativeFileStore implements FileStore {
+  readonly backend = 'native' as const
+  /** False once the scheme handler is seen to ignore or botch Range: then read by offset. */
+  rangeReads = true
+  private urls = new Map<string, Promise<string>>()
+  private sizes = new Map<string, number>()
+
+  constructor(
+    private fs: FilesystemPlugin,
+    private cap: CapacitorGlobal,
+    /** `maps/<ownerId>` */
+    readonly root: string,
+  ) {}
+
+  static async open(cap: CapacitorGlobal, fs: FilesystemPlugin, ownerId: string): Promise<NativeFileStore> {
+    const store = new NativeFileStore(fs, cap, `${FILES_ROOT}/${ownerId}`)
+    await store.checkRangeReads()
+    return store
+  }
+
+  private full(path: string): string {
+    return `${this.root}/${pathSegments(path).join('/')}`
+  }
+
+  private opts(full: string) {
+    return { path: full, directory: LIBRARY_NO_CLOUD }
+  }
+
+  private forget(path: string) {
+    this.urls.delete(path)
+    this.sizes.delete(path)
+  }
+
+  /**
+   * Find out once, on a tiny file, whether range requests come back right, so
+   * a platform that ignored Range never gets to load a whole pack.
+   */
+  private async checkRangeReads(): Promise<void> {
+    const probe = '.probe-range'
+    await this.fs.writeFile({ ...this.opts(this.full(probe)), data: bytesToBase64(new Uint8Array([10, 11, 12, 13, 14, 15])), recursive: true })
+    try {
+      const got = await this.rangeFetch(probe, 2, 3)
+      this.rangeReads = !!got && new Uint8Array(got).join() === '12,13,14'
+    } catch {
+      this.rangeReads = false
+    } finally {
+      this.forget(probe)
+      await this.fs.deleteFile(this.opts(this.full(probe))).catch(() => {})
+    }
+  }
+
+  async write(path: string, parts: BlobPart[]): Promise<number> {
+    const target = this.full(path)
+    // Written beside the old file, then swapped in: a crash or a full disk
+    // mid-write leaves the previous file (or none), never half of one.
+    const temp = `${target}.part`
+    this.forget(path)
+    let size = 0
+    try {
+      for await (const chunk of chunksOf(parts, WRITE_CHUNK)) {
+        const data = bytesToBase64(chunk)
+        if (size === 0) await this.fs.writeFile({ ...this.opts(temp), data, recursive: true })
+        else await this.fs.appendFile({ ...this.opts(temp), data })
+        size += chunk.length
+      }
+      if (size === 0) await this.fs.writeFile({ ...this.opts(temp), data: '', encoding: 'utf8', recursive: true })
+      const written = await this.fs.stat(this.opts(temp))
+      if (written.size !== size) throw new Error(`wrote ${written.size} of ${size} bytes`)
+      await this.fs.deleteFile(this.opts(target)).catch((err) => {
+        if (!isNotFound(err)) throw err
+      })
+      await this.fs.rename({ from: temp, to: target, directory: LIBRARY_NO_CLOUD })
+    } catch (err) {
+      await this.fs.deleteFile(this.opts(temp)).catch(() => {})
+      throw err
+    }
+    this.sizes.set(path, size)
+    return size
+  }
+
+  /** The whole file, read by range a megabyte at a time (never one unranged fetch). */
+  async read(path: string): Promise<Blob | null> {
+    const size = await this.size(path)
+    if (size === null) return null
+    const chunks: ArrayBuffer[] = []
+    for (let at = 0; at < size; at += READ_CHUNK) {
+      chunks.push(await this.readRange(path, at, Math.min(READ_CHUNK, size - at)))
+    }
+    return new Blob(chunks)
+  }
+
+  async readRange(path: string, offset: number, length: number): Promise<ArrayBuffer> {
+    const full = this.full(path)
+    if (length <= 0) return new ArrayBuffer(0)
+    if (this.rangeReads) {
+      const got = await this.rangeFetch(path, offset, length)
+      if (got) return got
+    }
+    return this.offsetRead(path, full, offset, length)
+  }
+
+  private url(path: string): Promise<string> {
+    let url = this.urls.get(path)
+    if (!url) {
+      url = this.fs.getUri(this.opts(this.full(path))).then(({ uri }) => this.cap.convertFileSrc(uri))
+      this.urls.set(path, url)
+      url.catch(() => this.urls.delete(path))
+    }
+    return url
+  }
+
+  /** The bytes through Capacitor's scheme handler, or null to use the fallback. */
+  private async rangeFetch(path: string, offset: number, length: number): Promise<ArrayBuffer | null> {
+    let resp: Response
+    try {
+      resp = await fetch(await this.url(path), {
+        headers: { Range: `bytes=${offset}-${offset + length - 1}` },
+        cache: 'no-store',
+      })
+    } catch {
+      // iOS fails the request when the file isn't there.
+      if ((await this.size(path)) === null) throw new MissingFileError(path)
+      return null
+    }
+    if (resp.status === 206) {
+      // A body bigger than asked for (a whole file from byte 0) isn't read at all.
+      if (Number(resp.headers.get('Content-Length') ?? 0) > length) {
+        void resp.body?.cancel().catch(() => {})
+        this.stopRangeReads(`a range response was ${resp.headers.get('Content-Length')} bytes for ${length}`)
+        return null
+      }
+      const data = await resp.arrayBuffer()
+      if (rangeIsExact(resp.headers.get('Content-Range'), offset, length, data.byteLength)) return data
+      this.stopRangeReads(`a range response had the wrong bytes (${resp.headers.get('Content-Range')})`)
+      return null
+    }
+    // Anything else: don't read the body (a 200 is the whole file).
+    void resp.body?.cancel().catch(() => {})
+    if (resp.status === 404 && (await this.size(path)) === null) throw new MissingFileError(path)
+    if (resp.status === 200) this.stopRangeReads('the scheme handler ignored Range')
+    return null
+  }
+
+  private stopRangeReads(why: string) {
+    if (!this.rangeReads) return
+    this.rangeReads = false
+    console.warn(`File reads switch to Filesystem.readFile: ${why}`)
+  }
+
+  private async offsetRead(path: string, full: string, offset: number, length: number): Promise<ArrayBuffer> {
+    const size = await this.size(path)
+    if (size === null) throw new MissingFileError(path)
+    const len = Math.min(length, size - offset)
+    // Never ask for length 0: the plugin reads to the end of the file then.
+    if (len <= 0) return new ArrayBuffer(0)
+    const { data } = await this.fs.readFile({ ...this.opts(full), offset, length: len })
+    let bytes = typeof data === 'string' ? base64ToBytes(data) : new Uint8Array(await data.arrayBuffer())
+    // Filesystem before 8.1 ignores offset/length and returns the whole file.
+    if (bytes.length > len) bytes = bytes.slice(offset, offset + len)
+    return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
+  }
+
+  async size(path: string): Promise<number | null> {
+    const known = this.sizes.get(path)
+    if (known !== undefined) return known
+    try {
+      const st = await this.fs.stat(this.opts(this.full(path)))
+      if (st.type === 'directory') return null
+      this.sizes.set(path, st.size)
+      return st.size
+    } catch (err) {
+      if (isNotFound(err)) return null
+      throw err
+    }
+  }
+
+  async remove(path: string): Promise<void> {
+    const full = this.full(path)
+    this.forget(path)
+    await this.fs.deleteFile(this.opts(full)).catch((err) => {
+      if (!isNotFound(err)) throw err
+    })
+  }
+
+  async removeDir(path: string): Promise<void> {
+    const full = this.full(path)
+    for (const key of [...this.urls.keys(), ...this.sizes.keys()]) if (key.startsWith(`${path}/`)) this.forget(key)
+    await this.fs.rmdir({ ...this.opts(full), recursive: true }).catch((err) => {
+      if (!isNotFound(err)) throw err
+    })
+  }
+}
+
 // ---------- Choosing one ----------
 
 const stores = new Map<string, Promise<FileStore>>()
 
 /**
- * The file store for one person. The choice of backend is remembered per
- * person, so files never seem to vanish when a browser update adds OPFS
- * support (a phone moving to Safari 26 keeps reading its IndexedDB files).
+ * The file store for one person. In the crew app that's always the native
+ * one. On the web the choice is remembered per person, so files never seem
+ * to vanish when a browser update adds OPFS support (a phone moving to
+ * Safari 26 keeps reading its IndexedDB files).
  */
 export function openFileStore(ownerId: string): Promise<FileStore> {
+  if (!isOwnerId(ownerId)) return Promise.reject(new Error(`bad owner id: ${ownerId}`))
   let store = stores.get(ownerId)
   if (!store) {
     store = (async () => {
       const db = await openOwnerDb(ownerId)
-      let backend = await db.get('meta', 'fileBackend')
+      const remembered = await db.get('meta', 'fileBackend')
+      const cap = nativeCapacitor()
+      const fs = cap && filesystemPlugin(cap)
+      if (cap && fs && (remembered === undefined || remembered === 'native')) {
+        if (remembered === undefined) await db.put('meta', 'native', 'fileBackend')
+        return NativeFileStore.open(cap, fs, ownerId)
+      }
+      let backend = remembered
       if (backend !== 'opfs' && backend !== 'idb') {
         backend = (await opfsWorks(ownerId)) ? 'opfs' : 'idb'
         await db.put('meta', backend, 'fileBackend')
@@ -256,6 +545,36 @@ export function openFileStore(ownerId: string): Promise<FileStore> {
       return new IdbFileStore(ownerId)
     })()
     stores.set(ownerId, store)
+    store.catch(() => stores.delete(ownerId))
   }
   return store
+}
+
+/**
+ * Delete one person's file folder, `maps/<ownerId>/`, wherever this page can
+ * see one: the native app's and the website's (OPFS). Their IndexedDB files
+ * go with their database. `maps/_packs/` and other people's folders stay.
+ */
+export async function removeOwnerFiles(ownerId: string): Promise<void> {
+  if (!isOwnerId(ownerId)) throw new Error(`bad owner id: ${ownerId}`)
+  stores.delete(ownerId)
+  const dir = `${FILES_ROOT}/${ownerId}`
+  const cap = nativeCapacitor()
+  const fs = cap && filesystemPlugin(cap)
+  if (fs) {
+    await fs.rmdir({ path: dir, directory: LIBRARY_NO_CLOUD, recursive: true }).catch((err) => {
+      if (!isNotFound(err)) throw err
+    })
+  }
+  if (typeof navigator !== 'undefined' && typeof navigator.storage?.getDirectory === 'function') {
+    let maps: FileSystemDirectoryHandle | null = null
+    try {
+      maps = await (await navigator.storage.getDirectory()).getDirectoryHandle(FILES_ROOT)
+    } catch {
+      // No OPFS here, or no maps folder in it.
+    }
+    await maps?.removeEntry(ownerId, { recursive: true }).catch((err: DOMException) => {
+      if (err.name !== 'NotFoundError') throw err
+    })
+  }
 }

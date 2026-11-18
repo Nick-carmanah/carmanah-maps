@@ -42,7 +42,7 @@ export type MapRaster =
     }
   /** One image of the whole map (2,200 px on its long edge): maps imported before tiles. */
   | { kind: 'image'; path: string; width: number; height: number }
-  /** A map saved before the library existed: its image is still in the old `carmanah-maps` database. */
+  /** A map saved before the library existed: its image is in the owner's `rasters` store (store.ts). */
   | { kind: 'legacy'; rasterId: string }
 
 /** One map in the Maps library. Stored in `carmanah-maps.<ownerId>` → `maps`. */
