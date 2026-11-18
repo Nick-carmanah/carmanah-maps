@@ -1,21 +1,35 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import type { Position } from 'geojson'
 import { formatBytes } from '../lib/library/library'
 import { UNSORTED, type LibraryMap } from '../lib/library/types'
+import { mapDistances, roughDistance, sortByDistance, type MapDistance } from '../lib/library/nearby'
+import { readMapsSort, saveMapsSort, type MapChoice, type MapsSort } from '../lib/library/viewer'
+import { lastFix, subscribeFix } from '../lib/position'
+import { formatDistance } from '../lib/units'
+import { useUnitSettings } from '../hooks/useUnitSettings'
 import type { FileStore } from '../lib/storage/files'
+import { EMBEDDED } from '../lib/embedded'
 import './MapsLibrary.css'
 
 type Patch = Partial<Omit<LibraryMap, 'id'>>
+type Basemap = 'streets' | 'satellite'
 
-interface MapsLibraryProps {
+interface MyMapsProps {
+  ownerId: string
   maps: LibraryMap[]
   /** The fire this phone is on: its folder is listed first and new maps go there. */
   currentFolder: string
   storageBackend: FileStore['backend'] | null
-  onClose: () => void
-  onImport: () => void
+  /** What's open now (highlighted). */
+  current: MapChoice
+  basemap: Basemap
+  onSetBasemap: (b: Basemap) => void
+  onOpen: (choice: MapChoice) => void
+  onImportFiles: () => void
+  onScanQr: () => void
+  onImportUrl: (url: string) => void
   onUpdate: (id: string, patch: Patch, persist?: boolean) => void
   onRemove: (id: string) => Promise<void>
-  onZoomTo: (id: string) => void
   readOriginal: (map: LibraryMap) => Promise<File | null>
   onShare: (file: File) => void
   /** Re-draw an older single-image map as sharp tiles from its original. */
@@ -24,30 +38,56 @@ interface MapsLibraryProps {
 
 const folderLabel = (folder: string) => folder || UNSORTED
 
-/** The Maps library: imported maps by fire, with Avenza's per-map actions. */
-export default function MapsLibrary({
+/**
+ * My Maps, Avenza's opening screen: the base map, then the person's maps by
+ * fire. Tap one to view it on its own. Maps that contain your GPS position say
+ * so; the others show how far away they are, and can be sorted nearest first.
+ */
+export default function MyMaps({
+  ownerId,
   maps,
   currentFolder,
   storageBackend,
-  onClose,
-  onImport,
+  current,
+  basemap,
+  onSetBasemap,
+  onOpen,
+  onImportFiles,
+  onScanQr,
+  onImportUrl,
   onUpdate,
   onRemove,
-  onZoomTo,
   readOriginal,
   onShare,
   onSharpen,
-}: MapsLibraryProps) {
+}: MyMapsProps) {
   const [filter, setFilter] = useState('')
   const [openId, setOpenId] = useState<string | null>(null)
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
+  const [importOpen, setImportOpen] = useState(false)
+  const [sort, setSortState] = useState<MapsSort>(() => readMapsSort(ownerId))
   const thumbs = useThumbnailUrls(maps)
+  const gps = useNearbyPosition(sort === 'nearest')
+  useUnitSettings() // distances follow the units setting
+
+  const distances = useMemo(() => mapDistances(maps, gps.position), [maps, gps.position])
+
+  const setSort = (next: MapsSort) => {
+    setSortState(next)
+    saveMapsSort(ownerId, next)
+    if (next === 'nearest') gps.locate()
+  }
+
+  const visible = useMemo(() => {
+    const needle = filter.trim().toLowerCase()
+    return needle
+      ? maps.filter((m) => `${m.name} ${m.folder} ${m.source?.fileName ?? ''}`.toLowerCase().includes(needle))
+      : maps
+  }, [maps, filter])
 
   const folders = useMemo(() => {
-    const needle = filter.trim().toLowerCase()
     const byFolder = new Map<string, LibraryMap[]>()
-    for (const m of maps) {
-      if (needle && !`${m.name} ${m.folder} ${m.source?.fileName ?? ''}`.toLowerCase().includes(needle)) continue
+    for (const m of visible) {
       const list = byFolder.get(m.folder) ?? []
       list.push(m)
       byFolder.set(m.folder, list)
@@ -57,7 +97,12 @@ export default function MapsLibrary({
       const rank = (f: string) => (f === currentFolder && f ? 0 : f ? 1 : 2)
       return rank(a) - rank(b) || a.localeCompare(b, undefined, { numeric: true })
     })
-  }, [maps, filter, currentFolder])
+  }, [visible, currentFolder])
+
+  const nearest = useMemo(
+    () => (sort === 'nearest' ? sortByDistance(visible, distances) : []),
+    [sort, visible, distances],
+  )
 
   const folderNames = useMemo(() => {
     const names = new Set(maps.map((m) => m.folder).filter(Boolean))
@@ -80,75 +125,350 @@ export default function MapsLibrary({
     })
   }, [])
 
+  const openMap = useCallback((id: string) => onOpen({ kind: 'map', id }), [onOpen])
+  const currentId = current.kind === 'map' ? current.id : null
+
+  const row = (m: LibraryMap, showFolder = false) => (
+    <MapRow
+      key={m.id}
+      map={m}
+      thumbUrl={thumbs.get(m.id)}
+      open={openId === m.id}
+      isCurrent={m.id === currentId}
+      distance={distances.get(m.id)}
+      folder={showFolder ? folderLabel(m.folder) : undefined}
+      folderNames={folderNames}
+      onOpenMap={openMap}
+      onToggleActions={setOpenId}
+      onUpdate={onUpdate}
+      onRemove={onRemove}
+      readOriginal={readOriginal}
+      onShare={onShare}
+      onSharpen={onSharpen}
+    />
+  )
+
   return (
-    <div className="layer-panel maps-library" role="dialog" aria-label="Maps">
-      <div className="panel-header">
-        <span>Maps{maps.length ? ` (${maps.length})` : ''}</span>
-        <span className="maps-header-actions">
-          <button className="btn small primary" onClick={onImport}>
-            + Import
-          </button>
-          <button className="panel-close" onClick={onClose} aria-label="Close maps">
-            ✕
-          </button>
-        </span>
-      </div>
+    <div className="my-maps" role="main" aria-label="My Maps">
+      <header className="my-maps-header">
+        {/* In the crew app this page has no browser chrome, so it links back. */}
+        {EMBEDDED && (
+          <a className="btn home-link" href="/" aria-label="Back to the crew app">
+            ‹ Home
+          </a>
+        )}
+        <h1>My Maps</h1>
+        <button
+          className="btn primary my-maps-add"
+          onClick={() => setImportOpen((o) => !o)}
+          aria-expanded={importOpen}
+          aria-label="Import a map"
+        >
+          +
+        </button>
+      </header>
 
-      {maps.length > 0 && (
-        <div className="maps-note">
-          {formatBytes(totalBytes)} on this {storageBackend === 'native' ? 'phone' : 'device'}
-          {storageBackend !== 'native' &&
-            ' · The browser can clear website storage when space runs low, so keep your original files.'}
-        </div>
+      {importOpen && (
+        <ImportMenu
+          onClose={() => setImportOpen(false)}
+          onFiles={() => {
+            setImportOpen(false)
+            onImportFiles()
+          }}
+          onScanQr={() => {
+            setImportOpen(false)
+            onScanQr()
+          }}
+          onUrl={(url) => {
+            setImportOpen(false)
+            onImportUrl(url)
+          }}
+        />
       )}
 
-      {maps.length > 6 && (
-        <div className="maps-filter">
-          <input
-            type="search"
-            value={filter}
-            placeholder="Find a map or fire"
-            onChange={(e) => setFilter(e.target.value)}
-          />
-        </div>
-      )}
+      <div className="my-maps-scroll">
+        <BaseMapRow
+          basemap={basemap}
+          isCurrent={current.kind === 'base'}
+          onOpen={() => onOpen({ kind: 'base' })}
+          onSetBasemap={onSetBasemap}
+        />
 
-      {maps.length === 0 && (
-        <div className="empty">
-          No maps yet. Import a GeoPDF (from Avenza, BCWS or any GIS) and it will be saved here for offline use,
-          sorted by fire.
-        </div>
-      )}
+        {maps.length > 0 && (
+          <div className="my-maps-tools">
+            <div className="seg" role="group" aria-label="Sort maps">
+              <button className={sort === 'folders' ? 'selected' : ''} onClick={() => setSort('folders')}>
+                By fire
+              </button>
+              <button className={sort === 'nearest' ? 'selected' : ''} onClick={() => setSort('nearest')}>
+                Nearest
+              </button>
+            </div>
+            {!gps.position && (
+              <button className="btn small" onClick={gps.locate} disabled={gps.locating}>
+                {gps.locating ? 'Finding you…' : '📍 Where am I?'}
+              </button>
+            )}
+            {gps.position && <span className="my-maps-gps">📍 GPS on</span>}
+          </div>
+        )}
+        {gps.error && sort === 'nearest' && !gps.position && <div className="maps-note">{gps.error}</div>}
 
-      {folders.map(([folder, list]) => (
-        <section key={folder || '\u0000'} className="maps-folder">
-          <button className="maps-folder-header" onClick={() => toggleFolder(folder)}>
-            <span className="maps-caret" aria-hidden>
-              {collapsed.has(folder) ? '▸' : '▾'}
-            </span>
-            <span className="maps-folder-name">{folderLabel(folder)}</span>
-            {folder && folder === currentFolder && <span className="maps-badge">this fire</span>}
-            <span className="maps-count">{list.length}</span>
-          </button>
-          {!collapsed.has(folder) &&
-            list.map((m) => (
-              <MapRow
-                key={m.id}
-                map={m}
-                thumbUrl={thumbs.get(m.id)}
-                open={openId === m.id}
-                folderNames={folderNames}
-                onOpen={setOpenId}
-                onUpdate={onUpdate}
-                onRemove={onRemove}
-                onZoomTo={onZoomTo}
-                readOriginal={readOriginal}
-                onShare={onShare}
-                onSharpen={onSharpen}
-              />
+        {maps.length > 6 && (
+          <div className="maps-filter">
+            <input
+              type="search"
+              value={filter}
+              placeholder="Find a map or fire"
+              onChange={(e) => setFilter(e.target.value)}
+            />
+          </div>
+        )}
+
+        {maps.length === 0 && (
+          <div className="empty">
+            No maps yet. Tap <strong>+</strong> to import a GeoPDF (from Avenza, BCWS or any GIS). It's saved on this
+            phone for offline use, sorted by fire.
+          </div>
+        )}
+
+        {sort === 'nearest'
+          ? nearest.map((m) => row(m, true))
+          : folders.map(([folder, list]) => (
+              <section key={folder || '\u0000'} className="maps-folder">
+                <button className="maps-folder-header" onClick={() => toggleFolder(folder)}>
+                  <span className="maps-caret" aria-hidden>
+                    {collapsed.has(folder) ? '▸' : '▾'}
+                  </span>
+                  <span className="maps-folder-name">{folderLabel(folder)}</span>
+                  {folder && folder === currentFolder && <span className="maps-badge">this fire</span>}
+                  <span className="maps-count">{list.length}</span>
+                </button>
+                {!collapsed.has(folder) && list.map((m) => row(m))}
+              </section>
             ))}
-        </section>
-      ))}
+
+        {maps.length > 0 && (
+          <div className="maps-note my-maps-storage">
+            {formatBytes(totalBytes)} on this {storageBackend === 'native' ? 'phone' : 'device'}
+            {storageBackend !== 'native' &&
+              ' · The browser can clear website storage when space runs low, so keep your original files.'}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/** The plain base map, always first (Avenza lists its base map the same way). */
+function BaseMapRow({
+  basemap,
+  isCurrent,
+  onOpen,
+  onSetBasemap,
+}: {
+  basemap: Basemap
+  isCurrent: boolean
+  onOpen: () => void
+  onSetBasemap: (b: Basemap) => void
+}) {
+  return (
+    <div className={`map-row base-row${isCurrent ? ' current' : ''}`}>
+      <div className="map-row-main">
+        <button className={`map-thumb base-thumb ${basemap}`} onClick={onOpen} aria-label="Open the base map">
+          <span aria-hidden>{basemap === 'satellite' ? '🛰' : '🌍'}</span>
+        </button>
+        <button className="map-text" onClick={onOpen}>
+          <span className="map-name">
+            Base map {isCurrent && <span className="maps-badge">open</span>}
+          </span>
+          <span className="map-meta">Anywhere · your saved offline areas work without signal</span>
+        </button>
+        <div className="seg seg-small" role="group" aria-label="Base map style">
+          {(['streets', 'satellite'] as const).map((b) => (
+            <button key={b} className={basemap === b ? 'selected' : ''} onClick={() => onSetBasemap(b)}>
+              {b === 'streets' ? 'Streets' : 'Satellite'}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** "+": the ways a map gets onto the phone. */
+function ImportMenu({
+  onClose,
+  onFiles,
+  onScanQr,
+  onUrl,
+}: {
+  onClose: () => void
+  onFiles: () => void
+  onScanQr: () => void
+  onUrl: (url: string) => void
+}) {
+  const [linkOpen, setLinkOpen] = useState(false)
+  const [url, setUrl] = useState('')
+  const valid = /^https?:\/\/\S+$/i.test(url.trim())
+  return (
+    <>
+      <div className="import-menu-backdrop" onClick={onClose} />
+      <div className="import-menu" role="menu" aria-label="Import a map">
+        <button className="tool-row" role="menuitem" onClick={onFiles}>
+          <span className="tool-icon">📂</span>
+          <span>
+            Files
+            <small>GeoPDF, KML/KMZ, GPX, CSV, shapefile</small>
+          </span>
+        </button>
+        <button className="tool-row" role="menuitem" onClick={onScanQr}>
+          <span className="tool-icon">▦</span>
+          <span>
+            Scan a QR code
+            <small>A fire's map or KML link</small>
+          </span>
+        </button>
+        <button className="tool-row" role="menuitem" onClick={() => setLinkOpen((o) => !o)} aria-expanded={linkOpen}>
+          <span className="tool-icon">🔗</span>
+          <span>
+            From a link
+            <small>Paste a web address (needs signal)</small>
+          </span>
+        </button>
+        {linkOpen && (
+          <form
+            className="map-form import-link"
+            onSubmit={(e) => {
+              e.preventDefault()
+              if (valid) onUrl(url.trim())
+            }}
+          >
+            <input
+              type="url"
+              inputMode="url"
+              autoFocus
+              value={url}
+              placeholder="https://…/map.pdf or .kmz"
+              onChange={(e) => setUrl(e.target.value)}
+              aria-label="Map link"
+            />
+            <button className="btn small primary" type="submit" disabled={!valid}>
+              Import
+            </button>
+          </form>
+        )}
+      </div>
+    </>
+  )
+}
+
+/**
+ * The GPS position for "you are here" and distances. It starts by itself when
+ * the phone already allows location (or inside the crew app, which asks at
+ * install); otherwise only when asked, so opening the website doesn't pop a
+ * permission prompt before anyone has done anything.
+ */
+function useNearbyPosition(wanted: boolean) {
+  const [on, setOn] = useState(false)
+  const [position, setPosition] = useState<Position | null>(() => {
+    const fix = lastFix()
+    return fix ? [fix.lng, fix.lat] : null
+  })
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (EMBEDDED || wanted) {
+      setOn(true)
+      return
+    }
+    let live = true
+    navigator.permissions
+      ?.query({ name: 'geolocation' as PermissionName })
+      .then((status) => live && status.state === 'granted' && setOn(true))
+      .catch(() => {})
+    return () => {
+      live = false
+    }
+    // Only the first time: a later "Nearest" calls locate().
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    if (!on) return
+    return subscribeFix(
+      (fix) => {
+        setPosition([fix.lng, fix.lat])
+        setError(null)
+      },
+      setError,
+    )
+  }, [on])
+
+  return {
+    position,
+    error,
+    locating: on && !position && !error,
+    locate: useCallback(() => setOn(true), []),
+  }
+}
+
+/** The open map, at the top of the Layers sheet: how it's shown, and the way back to My Maps. */
+export function CurrentMapSection({
+  map,
+  basemapAround,
+  onBasemapAround,
+  onUpdate,
+  onChangeMap,
+}: {
+  /** The open custom map, or null for the base map. */
+  map: LibraryMap | null
+  basemapAround: boolean
+  onBasemapAround: (on: boolean) => void
+  onUpdate: (id: string, patch: Patch, persist?: boolean) => void
+  onChangeMap: () => void
+}) {
+  const thumbs = useThumbnailUrls(useMemo(() => (map ? [map] : []), [map]))
+  const thumb = map ? thumbs.get(map.id) : undefined
+  return (
+    <div className="current-map">
+      <button className="layer-row current-map-row" onClick={onChangeMap}>
+        <span className="map-thumb small" aria-hidden>
+          {thumb ? <img src={thumb} alt="" /> : map ? '🗺' : '🌍'}
+        </span>
+        <span className="name">
+          {map ? map.name : 'Base map'}
+          <div className="meta">{map ? 'This map · tap to change' : 'No custom map open · tap for My Maps'}</div>
+        </span>
+        <span className="current-map-change">My Maps ›</span>
+      </button>
+      {map && (
+        <>
+          <label className="layer-row">
+            <input type="checkbox" checked={basemapAround} onChange={(e) => onBasemapAround(e.target.checked)} />
+            <span className="name">
+              Show base map around this map
+              <div className="meta">Off: plain grey outside the map's edge</div>
+            </span>
+          </label>
+          <label className="layer-row map-opacity">
+            <span>Opacity</span>
+            <input
+              type="range"
+              min={10}
+              max={100}
+              step={1}
+              value={Math.round(map.opacity * 100)}
+              onChange={(e) => onUpdate(map.id, { opacity: Number(e.target.value) / 100 }, false)}
+              onPointerUp={(e) => onUpdate(map.id, { opacity: Number(e.currentTarget.value) / 100 })}
+              onKeyUp={(e) => onUpdate(map.id, { opacity: Number(e.currentTarget.value) / 100 })}
+              onBlur={(e) => onUpdate(map.id, { opacity: Number(e.currentTarget.value) / 100 })}
+              aria-label="Map opacity"
+            />
+            <span className="map-opacity-value">{Math.round(map.opacity * 100)}%</span>
+          </label>
+        </>
+      )}
     </div>
   )
 }
@@ -195,11 +515,15 @@ interface MapRowProps {
   map: LibraryMap
   thumbUrl?: string
   open: boolean
+  isCurrent: boolean
+  distance?: MapDistance
+  /** Shown in the meta line when the list isn't grouped by folder. */
+  folder?: string
   folderNames: string[]
-  onOpen: (id: string | null) => void
+  onOpenMap: (id: string) => void
+  onToggleActions: (id: string | null) => void
   onUpdate: (id: string, patch: Patch, persist?: boolean) => void
   onRemove: (id: string) => Promise<void>
-  onZoomTo: (id: string) => void
   readOriginal: (map: LibraryMap) => Promise<File | null>
   onShare: (file: File) => void
   onSharpen: (map: LibraryMap) => void
@@ -211,11 +535,14 @@ const MapRow = memo(function MapRow({
   map,
   thumbUrl,
   open,
+  isCurrent,
+  distance,
+  folder,
   folderNames,
-  onOpen,
+  onOpenMap,
+  onToggleActions,
   onUpdate,
   onRemove,
-  onZoomTo,
   readOriginal,
   onShare,
   onSharpen,
@@ -245,57 +572,49 @@ const MapRow = memo(function MapRow({
 
   const legacy = !map.originalPath
   return (
-    <div className={`map-row${open ? ' open' : ''}`}>
+    <div className={`map-row${open ? ' open' : ''}${isCurrent ? ' current' : ''}${distance?.inside ? ' here' : ''}`}>
       <div className="map-row-main">
-        <button
-          className="map-thumb"
-          onClick={() => onZoomTo(map.id)}
-          title="Zoom to map"
-          aria-label={`Zoom to ${map.name}`}
-        >
+        <button className="map-thumb" onClick={() => onOpenMap(map.id)} aria-label={`Open ${map.name}`}>
           {thumbUrl ? <img src={thumbUrl} alt="" loading="lazy" decoding="async" /> : <span aria-hidden>🗺</span>}
+          {distance?.inside && (
+            <span className="map-here-pin" aria-hidden>
+              📍
+            </span>
+          )}
         </button>
-        <button className="map-text" onClick={() => onOpen(open ? null : map.id)} aria-expanded={open}>
-          <span className="map-name">{map.name}</span>
+        <button className="map-text" onClick={() => onOpenMap(map.id)}>
+          <span className="map-name">
+            {map.name} {isCurrent && <span className="maps-badge">open</span>}
+          </span>
+          {distance && (
+            <span className={`map-distance${distance.inside ? ' inside' : ''}`}>
+              {distance.inside ? 'You are here' : `${roughDistance(formatDistance(distance.metres))} away`}
+            </span>
+          )}
           <span className="map-meta">
+            {folder !== undefined && `${folder} · `}
             {formatDate(map.addedAt)} · {formatBytes(mapBytes(map))}
             {map.source && map.source.pageCount > 1 && ` · p${map.source.pageIndex + 1}`}
           </span>
           {legacy && <span className="map-legacy">Re-import to share or sharpen</span>}
-          {!legacy && map.raster.kind === 'image' && <span className="map-legacy">Blurry up close · tap Sharpen</span>}
+          {!legacy && map.raster.kind === 'image' && <span className="map-legacy">Blurry up close · Sharpen in ⋯</span>}
         </button>
-        <label className="map-visible" title={map.visible ? 'Hide map' : 'Show map'}>
-          <input
-            type="checkbox"
-            checked={map.visible}
-            onChange={() => onUpdate(map.id, { visible: !map.visible })}
-            aria-label={map.visible ? `Hide ${map.name}` : `Show ${map.name}`}
-          />
-        </label>
+        <button
+          className="map-more"
+          onClick={() => onToggleActions(open ? null : map.id)}
+          aria-expanded={open}
+          aria-label={`More for ${map.name}`}
+        >
+          ⋯
+        </button>
       </div>
 
       {open && (
         <div className="map-actions">
-          <label className="map-opacity">
-            <span>Opacity</span>
-            <input
-              type="range"
-              min={10}
-              max={100}
-              step={1}
-              value={Math.round(map.opacity * 100)}
-              onChange={(e) => onUpdate(map.id, { opacity: Number(e.target.value) / 100 }, false)}
-              onPointerUp={(e) => onUpdate(map.id, { opacity: Number(e.currentTarget.value) / 100 })}
-              onKeyUp={(e) => onUpdate(map.id, { opacity: Number(e.currentTarget.value) / 100 })}
-              onBlur={(e) => onUpdate(map.id, { opacity: Number(e.currentTarget.value) / 100 })}
-            />
-            <span className="map-opacity-value">{Math.round(map.opacity * 100)}%</span>
-          </label>
-
           {panel === 'actions' && (
             <div className="map-action-grid">
-              <button className="btn small" onClick={() => onZoomTo(map.id)}>
-                Zoom to
+              <button className="btn small primary" onClick={() => onOpenMap(map.id)}>
+                Open
               </button>
               <button
                 className="btn small"
@@ -310,7 +629,7 @@ const MapRow = memo(function MapRow({
                 {original === 'loading' ? 'Preparing…' : 'Share original'}
               </button>
               {map.raster.kind === 'image' && canShare && (
-                <button className="btn small primary" onClick={() => onSharpen(map)}>
+                <button className="btn small" onClick={() => onSharpen(map)}>
                   Sharpen
                 </button>
               )}
