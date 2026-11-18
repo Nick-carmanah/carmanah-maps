@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- The online page: only OpenFreeMap, AWS Terrain Tiles and the Mac-side
+         test server (scripts/serve-pack.mjs) are reachable. -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' capacitor://localhost; script-src 'self' capacitor://localhost; style-src 'self' capacitor://localhost 'unsafe-inline'; img-src 'self' capacitor://localhost data: blob:; connect-src 'self' capacitor://localhost https://tiles.openfreemap.org https://s3.amazonaws.com http://localhost:8787; object-src 'none'; base-uri 'none'" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Maps Harness — tools</title>
+    <link rel="stylesheet" href="./src/harness.css" />
+  </head>
+  <body class="tools">
+    <h1>Maps harness tools <a href="./index.html">← Map</a></h1>
+    <section>
+      <h2>Real area (OpenFreeMap + AWS terrain)</h2>
+      <button data-action="download">Download sample area</button>
+      <button data-action="build">Build PMTiles packs</button>
+    </section>
+    <section>
+      <h2>Whole-fire scale test (needs <code>npm run serve-pack</code> on the Mac)</h2>
+      <button data-action="scale-download-pack">Download 15k-tile pack</button>
+      <button data-action="scale-write-files">Write 15k tile files</button>
+      <button data-action="scale-build-pack">Build 15k pack on phone</button>
+      <button data-action="scale-read">Read 1,000 random tiles</button>
+      <button data-action="scale-delete">Delete scale test</button>
+    </section>
+    <pre id="log"></pre>
+    <script type="module" src="./src/tools.ts"></script>
+  </body>
+</html>

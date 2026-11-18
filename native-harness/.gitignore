@@ -1,0 +1,4 @@
+node_modules/
+dist/
+# Generated scale-test packs and pulled measurement files (large, never committed)
+.scratch/
