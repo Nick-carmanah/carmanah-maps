@@ -1,6 +1,7 @@
 import { openDB, type DBSchema } from 'idb'
 import type { FeatureCollection, Position } from 'geojson'
 import type { UserFeature } from './features'
+import type { Layer } from './layers'
 
 export interface RasterOverlay {
   id: string
@@ -11,6 +12,8 @@ export interface RasterOverlay {
   image: Blob
 }
 
+/** Read-only KML/GPX/SHP import from before layers existed. Migrated once into
+ * layers + features (mydata.ts); kept untouched as a backup, never written. */
 export interface Overlay {
   id: string
   name: string
@@ -45,6 +48,24 @@ interface CarmanahDB extends DBSchema {
     key: string
     value: RasterOverlay
   }
+  // My Data layers (layers.ts): tree, saved visibility, default style, schema.
+  layers: {
+    key: string
+    value: Layer
+  }
+  // Custom placemark icons restored from imported KMZ files.
+  icons: {
+    key: string
+    value: IconAsset
+  }
+}
+
+/** A placemark icon image from an imported KMZ (features use 'icon-<id>'). */
+export interface IconAsset {
+  id: string
+  /** File name it had in the archive, e.g. "files/hydrant.png". */
+  name: string
+  blob: Blob
 }
 
 export interface FeaturePhoto {
@@ -54,7 +75,7 @@ export interface FeaturePhoto {
   createdAt: number
 }
 
-const dbPromise = openDB<CarmanahDB>('carmanah-maps', 5, {
+const dbPromise = openDB<CarmanahDB>('carmanah-maps', 6, {
   upgrade(db, oldVersion) {
     if (oldVersion < 1) db.createObjectStore('overlays', { keyPath: 'id' })
     if (oldVersion < 2) db.createObjectStore('kv')
@@ -64,6 +85,10 @@ const dbPromise = openDB<CarmanahDB>('carmanah-maps', 5, {
       photos.createIndex('byFeature', 'featureId')
     }
     if (oldVersion < 5) db.createObjectStore('rasters', { keyPath: 'id' })
+    // v6 (layers). Checked by name, not version, so another branch's upgrade
+    // can land in either order: whoever merges second just bumps the number.
+    if (!db.objectStoreNames.contains('layers')) db.createObjectStore('layers', { keyPath: 'id' })
+    if (!db.objectStoreNames.contains('icons')) db.createObjectStore('icons', { keyPath: 'id' })
   },
 })
 
@@ -112,6 +137,53 @@ export async function deleteFeature(id: string): Promise<void> {
   await (await dbPromise).delete('features', id)
 }
 
+export async function listLayers(): Promise<Layer[]> {
+  return (await dbPromise).getAll('layers')
+}
+
+export async function saveLayer(layer: Layer): Promise<void> {
+  await (await dbPromise).put('layers', layer)
+}
+
+export async function getIcon(id: string): Promise<IconAsset | undefined> {
+  return (await dbPromise).get('icons', id)
+}
+
+/** Several writes across stores in ONE transaction: all land or none do.
+ * Used by imports, the layers migration and layer deletion. */
+export async function writeBatch(batch: {
+  layers?: Layer[]
+  features?: UserFeature[]
+  photos?: FeaturePhoto[]
+  icons?: IconAsset[]
+  deleteLayerIds?: string[]
+  /** Also deletes these features' photos. */
+  deleteFeatureIds?: string[]
+  kv?: Record<string, unknown>
+}): Promise<void> {
+  const db = await dbPromise
+  const tx = db.transaction(['layers', 'features', 'photos', 'icons', 'kv'], 'readwrite')
+  const ops: Promise<unknown>[] = []
+  for (const l of batch.layers ?? []) ops.push(tx.objectStore('layers').put(l))
+  for (const f of batch.features ?? []) ops.push(tx.objectStore('features').put(f))
+  for (const p of batch.photos ?? []) ops.push(tx.objectStore('photos').put(p))
+  for (const i of batch.icons ?? []) ops.push(tx.objectStore('icons').put(i))
+  for (const id of batch.deleteLayerIds ?? []) ops.push(tx.objectStore('layers').delete(id))
+  const photoIndex = tx.objectStore('photos').index('byFeature')
+  for (const id of batch.deleteFeatureIds ?? []) {
+    ops.push(tx.objectStore('features').delete(id))
+    ops.push(
+      photoIndex
+        .getAllKeys(id)
+        .then((keys) => Promise.all(keys.map((k) => tx.objectStore('photos').delete(k)))),
+    )
+  }
+  for (const [key, value] of Object.entries(batch.kv ?? {})) {
+    ops.push(tx.objectStore('kv').put(value, key))
+  }
+  await Promise.all([...ops, tx.done])
+}
+
 export async function getCached<T>(key: string): Promise<T | undefined> {
   return (await (await dbPromise).get('kv', key)) as T | undefined
 }
@@ -125,13 +197,6 @@ export async function listOverlays(): Promise<Overlay[]> {
   return all.sort((a, b) => b.addedAt - a.addedAt)
 }
 
-export async function saveOverlay(overlay: Overlay): Promise<void> {
-  await (await dbPromise).put('overlays', overlay)
-}
-
-export async function deleteOverlay(id: string): Promise<void> {
-  await (await dbPromise).delete('overlays', id)
-}
 
 /** Ask the browser not to evict our offline data under storage pressure. */
 export function requestPersistentStorage(): void {
