@@ -10,7 +10,7 @@ import SendAreaSheet from './components/SendAreaSheet'
 import { printableLayers } from './map/print-render'
 import FeatureSheet, { type PhotoThumb } from './components/FeatureSheet'
 import UnitsSettings from './components/UnitsSettings'
-import MapsLibrary from './components/MapsLibrary'
+import MyMaps, { CurrentMapSection } from './components/MapsLibrary'
 import { ImportChip, PagePicker } from './components/PagePicker'
 import { buildExport, shareOrDownload, type ExportOptions } from './lib/export'
 import { DEFAULT_LAYERS, featuresToGeoJSON, type UserFeature } from './lib/features'
@@ -51,6 +51,7 @@ import { EMBEDDED } from './lib/embedded'
 import { navTargetPosition, useNavigation } from './hooks/useNavigation'
 import { useGeofences } from './hooks/useGeofences'
 import { useMapsLibrary } from './hooks/useMapsLibrary'
+import { useMapViewer } from './hooks/useMapViewer'
 import { useSatelliteSignal } from './hooks/useSatelliteSignal'
 import { removeSavedSatelliteTiles } from './lib/mappacks'
 import {
@@ -104,7 +105,6 @@ export default function App() {
   const track = useTrackRecorder((m, e) => showToastRef.current(m, e))
   const showToastRef = useRef<(m: string, e?: boolean) => void>(() => {})
   const maps = useMapsLibrary((m, e) => showToastRef.current(m, e))
-  const [mapsOpen, setMapsOpen] = useState(false)
   const [navTargetId, setNavTargetId] = useState<string | null>(null)
   const [photos, setPhotos] = useState<PhotoThumb[]>([])
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -144,9 +144,26 @@ export default function App() {
     id: string
     nonce: number
     bounds?: LngLatBoundsLike | null
+    maxZoom?: number
+    instant?: boolean
   } | null>(null)
+  // My Maps → pick a map → view only that map (Avenza's model).
+  const fitMap = useCallback(
+    (bounds: LngLatBoundsLike, maxZoom: number) =>
+      setFocusRequest({ id: '', nonce: Date.now(), bounds, maxZoom, instant: true }),
+    [],
+  )
+  const viewer = useMapViewer(maps, fitMap, (m, e) => showToastRef.current(m, e))
+  // Anything that flies the map somewhere (an import, a feature) shows the map.
+  const showViewer = viewer.showMap
+  useEffect(() => {
+    if (focusRequest && !focusRequest.instant) showViewer()
+  }, [focusRequest, showViewer])
+  const chooseBasemap = useCallback((b: 'streets' | 'satellite') => {
+    setBasemap(b)
+    localStorage.setItem('carmanah-basemap', b)
+  }, [])
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const pdfInputRef = useRef<HTMLInputElement>(null)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
   useEffect(() => {
@@ -274,21 +291,14 @@ export default function App() {
     [showToast],
   )
 
-  /** Show a library map (if hidden) and fly to it. */
-  const showMap = useCallback(
-    (id: string) => {
-      if (maps.maps.find((m) => m.id === id)?.visible === false) maps.updateMap(id, { visible: true })
-      focusOverlay(id)
-    },
-    [maps, focusOverlay],
-  )
-
   const handlePdfImport = useCallback(
     async (file: File) => {
       const added = await maps.importPdf(file)
-      if (added.length) focusOverlay(added[added.length - 1].id)
+      // Imported from the open map (Tools → Import): show it. On My Maps it's listed.
+      const last = added[added.length - 1]
+      if (last && viewer.screen === 'map') viewer.open({ kind: 'map', id: last.id }, last)
     },
-    [maps, focusOverlay],
+    [maps, viewer],
   )
 
   const handleFiles = useCallback(
@@ -309,21 +319,39 @@ export default function App() {
     [handleImport, handlePdfImport, showToast],
   )
 
-  const handleQrResult = useCallback(
+  /** A link from a QR code or typed on My Maps: a GeoPDF goes to My Maps, anything else to layers. */
+  const handleLinkImport = useCallback(
     async (text: string) => {
-      setScanning(false)
       if (!/^https?:\/\//i.test(text)) {
-        showToast(`QR code doesn't contain a link (got: ${text.slice(0, 60)})`, true)
+        showToast(`That isn't a web link (got: ${text.slice(0, 60)})`, true)
         return
       }
       showToast('Downloading map…')
       try {
-        await handleImport(await fetchImportFromUrl(text))
+        const path = new URL(text).pathname
+        if (/\.pdf$/i.test(path)) {
+          const response = await fetch(text).catch(() => {
+            throw new Error('Could not download from that link — download the PDF in your browser and import it instead.')
+          })
+          if (!response.ok) throw new Error(`Download failed (HTTP ${response.status})`)
+          const name = decodeURIComponent(path.split('/').pop() || 'map.pdf')
+          await handlePdfImport(new File([await response.blob()], name, { type: 'application/pdf' }))
+        } else {
+          await handleImport(await fetchImportFromUrl(text))
+        }
       } catch (err) {
         showToast((err as Error).message, true)
       }
     },
-    [handleImport, showToast],
+    [handleImport, handlePdfImport, showToast],
+  )
+
+  const handleQrResult = useCallback(
+    (text: string) => {
+      setScanning(false)
+      handleLinkImport(text)
+    },
+    [handleLinkImport],
   )
 
   // ---- Layers ----
@@ -654,11 +682,14 @@ export default function App() {
             ‹ Home
           </a>
         )}
-        <h1>
-          <span className="flame">🔥</span>Carmanah Maps
+        <button className="btn maps-back" onClick={viewer.showList} aria-label="My Maps">
+          ‹ Maps
+        </button>
+        <h1 className="map-title" title={viewer.title}>
+          {viewer.title}
         </h1>
-        <button className="btn primary" onClick={() => setScanning(true)}>
-          Scan fire QR
+        <button className="btn primary" onClick={() => setScanning(true)} aria-label="Scan fire QR">
+          Scan QR
         </button>
         <input
           ref={fileInputRef}
@@ -671,22 +702,11 @@ export default function App() {
             e.target.value = ''
           }}
         />
-        <input
-          ref={pdfInputRef}
-          type="file"
-          accept=".pdf,application/pdf"
-          multiple
-          hidden
-          onChange={(e) => {
-            handleFiles(e.target.files)
-            e.target.value = ''
-          }}
-        />
       </header>
 
       <div className="map-container">
         <MapView
-          mapLayers={maps.layers}
+          mapLayers={viewer.layers}
           focusRequest={focusRequest}
           measureMode={measuring}
           onExitMeasure={() => setMeasuring(false)}
@@ -709,7 +729,7 @@ export default function App() {
           }}
           onNotify={showToast}
           onMapReady={setMainMap}
-          basemap={shownBasemap}
+          basemap={viewer.basemapShown ? shownBasemap : 'none'}
           openSearchNonce={searchNonce}
         />
 
@@ -734,11 +754,18 @@ export default function App() {
           <div className="sheet-wrap">
             <div className="sheet-backdrop" onClick={() => setLayersOpen(false)} />
             <LayerPanel
-              mapsCount={maps.maps.length}
-              onOpenMaps={() => {
-                setLayersOpen(false)
-                setMapsOpen(true)
-              }}
+              currentMap={
+                <CurrentMapSection
+                  map={viewer.current}
+                  basemapAround={viewer.basemapAround}
+                  onBasemapAround={viewer.setBasemapAround}
+                  onUpdate={maps.updateMap}
+                  onChangeMap={() => {
+                    setLayersOpen(false)
+                    viewer.showList()
+                  }}
+                />
+              }
               liveEnabled={liveEnabled}
               liveFetchedAt={liveData?.fetchedAt ?? null}
               liveRefreshing={liveRefreshing}
@@ -750,10 +777,7 @@ export default function App() {
               onToggleGrid={handleToggleGrid}
               basemap={basemap}
               satelliteOk={satelliteOk}
-              onSetBasemap={(b) => {
-                setBasemap(b)
-                localStorage.setItem('carmanah-basemap', b)
-              }}
+              onSetBasemap={chooseBasemap}
               onClose={() => setLayersOpen(false)}
               hasMyData={layers.length > 0}
               myData={
@@ -808,26 +832,26 @@ export default function App() {
           />
         )}
 
-        {mapsOpen && (
-          <div className="sheet-wrap">
-            <div className="sheet-backdrop" onClick={() => setMapsOpen(false)} />
-            <MapsLibrary
-              maps={maps.maps}
-              currentFolder={maps.defaultFolder}
-              storageBackend={maps.storageBackend}
-              onClose={() => setMapsOpen(false)}
-              onImport={() => pdfInputRef.current?.click()}
-              onUpdate={maps.updateMap}
-              onRemove={maps.removeMap}
-              onZoomTo={(id) => {
-                setMapsOpen(false)
-                showMap(id)
-              }}
-              readOriginal={maps.readOriginal}
-              onShare={maps.shareFile}
-              onSharpen={maps.sharpen}
-            />
-          </div>
+        {viewer.screen === 'list' && (
+          <MyMaps
+            ownerId={maps.ownerId}
+            maps={maps.maps}
+            currentFolder={maps.defaultFolder}
+            storageBackend={maps.storageBackend}
+            current={viewer.choice}
+            basemap={basemap}
+            satelliteOk={satelliteOk}
+            onSetBasemap={chooseBasemap}
+            onOpen={viewer.open}
+            onImportFiles={() => fileInputRef.current?.click()}
+            onScanQr={() => setScanning(true)}
+            onImportUrl={handleLinkImport}
+            onUpdate={maps.updateMap}
+            onRemove={maps.removeMap}
+            readOriginal={maps.readOriginal}
+            onShare={maps.shareFile}
+            onSharpen={maps.sharpen}
+          />
         )}
 
         {toolsOpen && (

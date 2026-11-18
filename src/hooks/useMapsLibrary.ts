@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { MapsLibrary, shareOrDownloadFile } from '../lib/library/library'
 import { importGeoPdf, sharpenMap, type ImportProgress, type PagePickRequest } from '../lib/library/import'
 import { forgetMapTiles, mapTileUrl, registerMapTileProtocol } from '../lib/library/tile-protocol'
@@ -41,8 +41,6 @@ export function useMapsLibrary(notify: Notify) {
   const pendingPickRef = useRef<PendingPick | null>(null)
   pendingPickRef.current = pendingPick
   const [importStatus, setImportStatus] = useState<ImportStatus | null>(null)
-  const [imageUrls, setImageUrls] = useState<Map<string, string>>(new Map())
-  const loadingUrls = useRef(new Set<string>())
   const notifyRef = useRef(notify)
   notifyRef.current = notify
 
@@ -75,56 +73,6 @@ export function useMapsLibrary(notify: Notify) {
   /** New maps go in the fire's folder: the crew app's fire, else the profile's, else Unsorted. */
   const defaultFolder = context.fireNumber || getProfile().fireNumber || ''
 
-  // Read each visible map's image once; keep the URL while the map exists.
-  useEffect(() => {
-    if (!library) return
-    for (const map of maps) {
-      if (map.raster.kind === 'tiles') continue
-      if (!map.visible || imageUrls.has(map.id) || loadingUrls.current.has(map.id)) continue
-      loadingUrls.current.add(map.id)
-      library
-        .readImage(map)
-        .then((blob) => {
-          if (!blob) throw new Error('its image is missing from this device')
-          const url = URL.createObjectURL(blob)
-          setImageUrls((prev) => new Map(prev).set(map.id, url))
-        })
-        .catch((err) => notifyRef.current(`"${map.name}" can't be shown: ${(err as Error).message}`, true))
-        .finally(() => loadingUrls.current.delete(map.id))
-    }
-    const ids = new Set(maps.map((m) => m.id))
-    const gone = [...imageUrls.keys()].filter((id) => !ids.has(id))
-    if (gone.length) {
-      gone.forEach((id) => URL.revokeObjectURL(imageUrls.get(id)!))
-      setImageUrls((prev) => {
-        const next = new Map(prev)
-        gone.forEach((id) => next.delete(id))
-        return next
-      })
-    }
-  }, [library, maps, imageUrls])
-
-  // (The app never unmounts this hook; its URLs go with the page.)
-
-  /** Oldest first, so newer maps draw on top. */
-  const layers = useMemo<MapLayer[]>(
-    () =>
-      [...maps]
-        .sort((a, b) => a.addedAt - b.addedAt)
-        .map((m) => ({
-          id: m.id,
-          corners: m.corners,
-          opacity: m.opacity,
-          visible: m.visible,
-          tiles:
-            m.raster.kind === 'tiles'
-              ? { url: mapTileUrl(m.id), minzoom: m.raster.minzoom, maxzoom: m.raster.maxzoom, bounds: m.raster.bounds }
-              : undefined,
-          imageUrl: imageUrls.get(m.id),
-        })),
-    [maps, imageUrls],
-  )
-
   /** Update in memory now; save in the background. */
   const updateMap = useCallback(
     (id: string, patch: Partial<Omit<LibraryMap, 'id'>>, persist = true) => {
@@ -143,6 +91,12 @@ export function useMapsLibrary(notify: Notify) {
       forgetMapTiles(id)
       setMaps((prev) => prev.filter((m) => m.id !== id))
     },
+    [library],
+  )
+
+  /** The single image of an image or legacy map (tiled maps are read by tile). */
+  const readImage = useCallback(
+    (map: LibraryMap) => library?.readImage(map) ?? Promise.resolve(null),
     [library],
   )
 
@@ -235,15 +189,6 @@ export function useMapsLibrary(notify: Notify) {
           onProgress: (p) => setImportStatus({ fileName, ...p, cancel }),
         })
         forgetMapTiles(map.id)
-        const url = imageUrls.get(map.id)
-        if (url) {
-          URL.revokeObjectURL(url)
-          setImageUrls((prev) => {
-            const nextUrls = new Map(prev)
-            nextUrls.delete(map.id)
-            return nextUrls
-          })
-        }
         setMaps((prev) => prev.map((m) => (m.id === map.id ? next : m)))
         notifyRef.current(`"${map.name}" is now sharp to about ${next.raster.kind === 'tiles' ? next.raster.dpi : 300} DPI`)
       } catch (err) {
@@ -253,7 +198,7 @@ export function useMapsLibrary(notify: Notify) {
         setImportStatus(null)
       }
     },
-    [library, imageUrls],
+    [library],
   )
 
   return {
@@ -262,14 +207,29 @@ export function useMapsLibrary(notify: Notify) {
     ready: library !== null,
     storageBackend: library?.files.backend ?? null,
     maps,
-    layers,
     defaultFolder,
     updateMap,
     removeMap,
+    readImage,
     readOriginal,
     shareFile,
     importPdf,
     importStatus,
     pendingPick,
+  }
+}
+
+/** How the map view draws one library map: tiles through the map-tile protocol, or its one image. */
+export function mapLayerOf(map: LibraryMap, imageUrl?: string): MapLayer {
+  return {
+    id: map.id,
+    corners: map.corners,
+    opacity: map.opacity,
+    visible: true,
+    tiles:
+      map.raster.kind === 'tiles'
+        ? { url: mapTileUrl(map.id), minzoom: map.raster.minzoom, maxzoom: map.raster.maxzoom, bounds: map.raster.bounds }
+        : undefined,
+    imageUrl,
   }
 }
