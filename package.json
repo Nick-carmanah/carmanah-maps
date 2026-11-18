@@ -8,7 +8,10 @@
     "build": "tsc -b && vite build",
     "build:embedded": "tsc -b && vite build --mode embedded",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "packs:serve": "node scripts/packs/serve-local.ts",
+    "packs:check": "node scripts/packs/check-hosting.ts",
+    "packs:upload": "node scripts/packs/upload.ts"
   },
   "dependencies": {
     "@tmcw/togeojson": "^7.1.2",
