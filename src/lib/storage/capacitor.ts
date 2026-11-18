@@ -1,13 +1,14 @@
 /**
  * The bits of Capacitor the map page uses, reached through `window.Capacitor`
  * (rebuild plan §0: the crew app injects `/capacitor.js`; this bundle has no
- * Capacitor npm packages). Only what the storage layer needs is typed here.
+ * Capacitor npm packages). Only what the storage layer and sharing
+ * (src/lib/export.ts) need is typed here.
  *
- * The Filesystem plugin may be reachable three ways, depending on what the
- * host page loaded: already registered (`Capacitor.Plugins.Filesystem`),
- * registrable (`Capacitor.registerPlugin`, from capacitor.js), or only
- * through the native bridge (`Capacitor.nativePromise`, which every
- * Capacitor web view has). All three end in the same native calls.
+ * A plugin may be reachable three ways, depending on what the host page
+ * loaded: already registered (`Capacitor.Plugins.<Name>`), registrable
+ * (`Capacitor.registerPlugin`, from capacitor.js), or only through the
+ * native bridge (`Capacitor.nativePromise`, which every Capacitor web view
+ * has). All three end in the same native calls.
  */
 
 /** `Directory.LibraryNoCloud`: iOS Library/NoCloud (no iCloud backup, not in Files, never purged). */
@@ -29,6 +30,11 @@ export interface FilesystemPlugin {
   rmdir(o: FsPathOptions & { recursive?: boolean }): Promise<void>
   rename(o: { from: string; to: string; directory: string; toDirectory?: string }): Promise<void>
   getUri(o: FsPathOptions): Promise<{ uri: string }>
+}
+
+export interface SharePlugin {
+  /** Resolves when the share sheet closes after a share; rejects with "Share canceled" when dismissed. */
+  share(o: { title?: string; text?: string; files?: string[] }): Promise<unknown>
 }
 
 export interface CapacitorGlobal {
@@ -53,23 +59,34 @@ export function nativeCapacitor(): CapacitorGlobal | null {
   }
 }
 
-/** The Filesystem plugin, or null if this app wasn't built with it. */
-export function filesystemPlugin(cap: CapacitorGlobal): FilesystemPlugin | null {
-  const registered = cap.Plugins?.Filesystem as FilesystemPlugin | undefined
-  if (registered && typeof registered.readFile === 'function') return registered
+/** A plugin by name, or null if this app wasn't built with it. `methods[0]`
+ * tells a registered plugin from something else under that name. */
+function pluginByName<T>(cap: CapacitorGlobal, name: string, methods: readonly string[]): T | null {
+  const registered = cap.Plugins?.[name] as Record<string, unknown> | undefined
+  if (registered && typeof registered[methods[0]] === 'function') return registered as T
   const headers = cap.PluginHeaders
-  if (headers && !headers.some((h) => h.name === 'Filesystem')) return null
+  if (headers && !headers.some((h) => h.name === name)) return null
   if (typeof cap.registerPlugin === 'function') {
-    const plugin = cap.registerPlugin('Filesystem') as FilesystemPlugin | undefined
+    const plugin = cap.registerPlugin(name) as T | undefined
     if (plugin) return plugin
   }
   const call = cap.nativePromise
   if (typeof call === 'function' && headers) {
     return Object.fromEntries(
-      FS_METHODS.map((m) => [m, (options: unknown) => call.call(cap, 'Filesystem', m, options)]),
-    ) as unknown as FilesystemPlugin
+      methods.map((m) => [m, (options: unknown) => call.call(cap, name, m, options)]),
+    ) as T
   }
   return null
+}
+
+/** The Filesystem plugin, or null if this app wasn't built with it. */
+export function filesystemPlugin(cap: CapacitorGlobal): FilesystemPlugin | null {
+  return pluginByName<FilesystemPlugin>(cap, 'Filesystem', FS_METHODS)
+}
+
+/** The Share plugin, or null if this app wasn't built with it. */
+export function sharePlugin(cap: CapacitorGlobal): SharePlugin | null {
+  return pluginByName<SharePlugin>(cap, 'Share', ['share'])
 }
 
 /** Not-found errors from the plugin (iOS/Android code OS-PLUG-FILE-0008, or the message). */

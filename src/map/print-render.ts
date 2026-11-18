@@ -5,7 +5,7 @@ import type {
   StyleSpecification,
 } from 'maplibre-gl'
 import type { FeatureCollection } from 'geojson'
-import { GLYPHS_URL, MAP_FONTSTACKS, MAP_STYLE, SPRITE_URL, TILEJSON_URL } from './basemap'
+import { MAP_STYLE, TILEJSON_URL } from './basemap'
 import { tileCacheKey } from '../lib/mappacks'
 import {
   DEFAULT_FILL_OPACITY,
@@ -151,8 +151,6 @@ export interface TileCheck {
    * hillshade just looks a little softer.
    */
   coarser: number
-  /** Label fonts or map icons aren't saved (offline only). */
-  labelsMissing: boolean
   offline: boolean
 }
 
@@ -286,23 +284,14 @@ export async function checkTiles(area: MapArea): Promise<TileCheck> {
   const both = [vector, terrain].filter((c) => c !== null)
   const notSaved = both.some((c) => c.notSaved === null) ? null : both.reduce((n, c) => n + c.notSaved!, 0)
 
-  let labelsMissing = false
-  if (offline) {
-    const assets = [
-      ...MAP_FONTSTACKS.map((fs) => GLYPHS_URL.replace('{fontstack}', fs).replace('{range}', '0-255')),
-      `${SPRITE_URL}@2x.json`,
-      `${SPRITE_URL}@2x.png`,
-    ]
-    labelsMissing = (await Promise.all(assets.map(savedOffline))).some((s) => s === false)
-  }
-
+  // Label fonts and map icons ship with the app (src/map/basemap.ts), so
+  // only tiles can be missing.
   return {
     tilesUrl,
     notSaved,
     basemapTotal: vector?.total ?? 0,
     basemapBlank: !offline ? 0 : vector?.notSaved == null ? null : vector.notSaved - vector.coarser,
     coarser: offline ? (vector?.coarser ?? 0) : 0,
-    labelsMissing,
     offline,
   }
 }

@@ -4,6 +4,7 @@
  * no spaces, no punctuation, underscores between words.
  */
 import { adoptLegacyPref, readOwnerPref, readStoredKey, writeOwnerPref } from './storage/prefs'
+import { readMapsContext } from './storage/owner'
 
 export interface Profile {
   callsign: string
@@ -42,9 +43,24 @@ export function saveProfile(profile: Profile): void {
   writeOwnerPref(PREF, JSON.stringify(profile))
 }
 
-/** True when the user has set up a profile — enables convention naming. */
-export function conventionActive(): boolean {
+/**
+ * Call sign and fire number to name things with. The crew app's hand-off
+ * (carmanah.mapsContext.v1, rebuild plan §0) wins field by field over the
+ * profile typed in on this page: it's what the crew app knows about the
+ * person signed in right now. The profile fills in what the hand-off lacks.
+ */
+export function namingProfile(): Profile {
   const p = getProfile()
+  const handOff = readMapsContext()
+  return {
+    callsign: handOff.callSign ?? p.callsign.trim(),
+    fireNumber: handOff.fireNumber ?? p.fireNumber.trim(),
+  }
+}
+
+/** True when there's a call sign or fire number — enables convention naming. */
+export function conventionActive(): boolean {
+  const p = namingProfile()
   return Boolean(p.callsign || p.fireNumber)
 }
 
@@ -63,7 +79,7 @@ export function sanitizeGisName(s: string): string {
 
 /** "Edge" → "Edge_JUL11_K61067_2P14" using the stored profile. */
 export function buildConventionName(what: string): string {
-  const p = getProfile()
+  const p = namingProfile()
   return sanitizeGisName([what, datePart(), p.fireNumber, p.callsign].filter(Boolean).join('_'))
 }
 

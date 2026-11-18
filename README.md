@@ -38,6 +38,7 @@ workflows, built to pair with the Carmanah Wildfire crew platform
 npm install
 npm run dev       # http://localhost:5173
 npm run build     # production build + service worker in dist/
+npm run build:embedded  # the crew app's map page in dist-embedded/ (docs/crew-app-handoff.md)
 npm test          # unit tests (also run by the PR check)
 ```
 
@@ -83,7 +84,9 @@ maps.carmanahwildfire.com once DNS is pointed.
   forbids app traffic and bulk offline downloads.)
 - `src/map/openfreemap-liberty.json` is a copy of
   https://tiles.openfreemap.org/styles/liberty (refresh by re-downloading);
-  the OSM recolouring lives in `src/map/basemap.ts`. Tile URLs carry a
+  the OSM recolouring lives in `src/map/basemap.ts`. Its label fonts and icons
+  ship in `public/basemap/` (refresh with `scripts/fetch-basemap-assets.mjs`),
+  so labels draw offline from the first launch. Tile URLs carry a
   weekly build version; the service worker and `src/lib/mappacks.ts` strip it
   from cache keys so saved areas keep working after it rolls over.
 - `src/main.tsx` shims `requestAnimationFrame` with a timer fallback so the map

@@ -10,11 +10,20 @@ import { pathSegments } from '../src/lib/storage/files'
 const handOff = (value: unknown) => JSON.stringify(value)
 
 describe('parseMapsContext', () => {
-  it('reads the owner and fire from a good hand-off', () => {
+  it('reads the owner, fire and call sign from a good hand-off', () => {
     expect(parseMapsContext(handOff({ ownerId: 'u123', fireNumber: 'K61067', callSign: '2P14' }))).toEqual({
       ownerId: 'u123',
       fireNumber: 'K61067',
+      callSign: '2P14',
     })
+  })
+
+  it('takes the call sign from the other spellings, and leaves it out when blank or not text', () => {
+    expect(parseMapsContext(handOff({ ownerId: 'u1', call_sign: ' 2P14 ' })).callSign).toBe('2P14')
+    expect(parseMapsContext(handOff({ ownerId: 'u1', callsign: '7T3' })).callSign).toBe('7T3')
+    for (const callSign of ['', '  ', 7, null, ['2P14']]) {
+      expect(parseMapsContext(handOff({ ownerId: 'u1', callSign })).callSign).toBeUndefined()
+    }
   })
 
   it('accepts every file-name-safe owner id up to 64 characters', () => {

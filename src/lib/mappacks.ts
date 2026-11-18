@@ -1,5 +1,5 @@
 import type { LngLatBounds } from 'maplibre-gl'
-import { GLYPHS_URL, MAP_FONTSTACKS, SPRITE_URL, TILEJSON_URL } from '../map/basemap'
+import { TILEJSON_URL } from '../map/basemap'
 
 // Tiles are stored in the same Cache Storage bucket the service worker's
 // CacheFirst handler reads from ('map-tiles'), so anything downloaded here is
@@ -19,9 +19,6 @@ const TERRAIN_MAX_Z = 12
 export const MAX_TILES = 3000
 /** Rough average tile weight, for the size estimate shown to the user. */
 export const AVG_TILE_KB = 30
-/** Glyph ranges labels draw from: Latin, Latin extended, combining marks
- * (First Nations place names), punctuation. */
-const GLYPH_RANGES = ['0-255', '256-511', '768-1023', '8192-8447']
 
 /** OpenFreeMap tile URLs carry a weekly build version
  * (…/planet/20261018_080001_pt/14/2602/5629.pbf). Cache tiles without it so
@@ -76,22 +73,6 @@ function urlsForBounds(bounds: LngLatBounds, basemapTiles: string): string[] {
   return urls
 }
 
-/** Fonts and icons the basemap needs to draw labels and symbols offline. */
-function styleAssetUrls(): string[] {
-  // Raw font names: fetch and Cache Storage encode the spaces exactly the way
-  // the map's own glyph requests do, so the keys match.
-  const glyphs = MAP_FONTSTACKS.flatMap((fontstack) =>
-    GLYPH_RANGES.map((range) =>
-      GLYPHS_URL.replace('{fontstack}', fontstack).replace('{range}', range),
-    ),
-  )
-  const sprites = ['', '@2x'].flatMap((ratio) => [
-    `${SPRITE_URL}${ratio}.json`,
-    `${SPRITE_URL}${ratio}.png`,
-  ])
-  return [...glyphs, ...sprites]
-}
-
 export function estimateTileCount(bounds: LngLatBounds): number {
   let count = 0
   for (let z = MIN_Z; z <= BASEMAP_MAX_Z; z++) {
@@ -126,7 +107,9 @@ export async function downloadMapPack(
   const { tiles } = (await tilejson.clone().json()) as { tiles: string[] }
   await cache.put(TILEJSON_URL, tilejson)
 
-  const urls = [...urlsForBounds(bounds, tiles[0]), ...styleAssetUrls()]
+  // Label fonts and icons ship with the app (src/map/basemap.ts), so only
+  // tiles are downloaded.
+  const urls = urlsForBounds(bounds, tiles[0])
   const result: PackResult = { fetched: 0, alreadyCached: 0, failed: 0 }
   let done = 0
   let index = 0

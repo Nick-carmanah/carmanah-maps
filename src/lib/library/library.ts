@@ -3,6 +3,7 @@ import { openFileStore, type FileStore } from '../storage/files'
 import { GUEST_OWNER } from '../storage/owner'
 import { deleteRaster, listRasters } from '../store'
 import { thumbnailOf } from '../geopdf'
+import { shareNatively } from '../export'
 import type { LibraryMap } from './types'
 
 /** Opacity new maps start at: the basemap shows through a little (as before the library). */
@@ -151,6 +152,9 @@ export class MapsLibrary {
  * share sheet only opens in response to a user gesture.
  */
 export async function shareOrDownloadFile(file: File): Promise<'shared' | 'downloaded' | 'cancelled'> {
+  // The crew app's store build: its own share sheet (src/lib/export.ts).
+  const native = await shareNatively(file)
+  if (native) return native
   if (navigator.canShare?.({ files: [file] })) {
     try {
       await navigator.share({ files: [file], title: file.name })

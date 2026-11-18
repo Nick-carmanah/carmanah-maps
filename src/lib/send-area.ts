@@ -1,5 +1,6 @@
 import type { Position } from 'geojson'
-import { getProfile } from './naming'
+import { namingProfile } from './naming'
+import { shareNatively } from './export'
 import { getUnitSettings } from './units'
 import {
   buildGeoPdf,
@@ -45,23 +46,6 @@ export function attributionLines(layers: PrintLayers): string[] {
   return lines
 }
 
-/**
- * The crew app's read-only hand-off (plan §0). Only the fire number is read
- * here; the app-wide reader comes with the embedded build (plan Phase 0.2).
- */
-const MAPS_CONTEXT_KEY = 'carmanah.mapsContext.v1'
-
-function handOffFireNumber(): string | undefined {
-  try {
-    const raw = localStorage.getItem(MAPS_CONTEXT_KEY)
-    const ctx = raw ? (JSON.parse(raw) as Record<string, unknown>) : null
-    const v = ctx?.fireNumber ?? ctx?.fire_number
-    return typeof v === 'string' && v.trim() ? v.trim() : undefined
-  } catch {
-    return undefined
-  }
-}
-
 /** "2026-11-18" in local time. */
 function localDate(d: Date): string {
   const p = (n: number) => String(n).padStart(2, '0')
@@ -69,12 +53,13 @@ function localDate(d: Date): string {
 }
 
 /**
- * Fire number and date: from the crew app's hand-off, else the fire number
- * set in this app's profile, else "Carmanah Maps" and the date.
+ * Fire number, call sign and date ("K61067 2P14 2026-11-18"): from the crew
+ * app's hand-off, else this app's profile (namingProfile). No fire number:
+ * "Carmanah Maps" instead.
  */
 export function defaultTitle(now = new Date()): string {
-  const fire = handOffFireNumber() ?? (getProfile().fireNumber.trim() || undefined)
-  return `${fire ?? 'Carmanah Maps'} ${localDate(now)}`
+  const { fireNumber, callsign } = namingProfile()
+  return [fireNumber || 'Carmanah Maps', callsign, localDate(now)].filter(Boolean).join(' ')
 }
 
 /** A file name Files, AirDrop and Avenza all accept; Avenza names the map after it. */
@@ -159,25 +144,6 @@ export async function createAreaMap(options: AreaMapOptions): Promise<AreaMap> {
 
 // ---- Sharing --------------------------------------------------------------------
 
-interface CapacitorLike {
-  isNativePlatform?: () => boolean
-  Plugins?: {
-    Filesystem?: {
-      writeFile(o: { path: string; data: string; directory: string; recursive?: boolean }): Promise<{ uri: string }>
-    }
-    Share?: { share(o: { title?: string; files?: string[]; dialogTitle?: string }): Promise<unknown> }
-  }
-}
-
-async function toBase64(file: Blob): Promise<string> {
-  const bytes = new Uint8Array(await file.arrayBuffer())
-  let binary = ''
-  for (let i = 0; i < bytes.length; i += 0x8000) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
-  }
-  return btoa(binary)
-}
-
 function isCancel(err: unknown): boolean {
   const e = err as { name?: string; message?: string } | null
   return e?.name === 'AbortError' || /cancel/i.test(e?.message ?? '')
@@ -185,29 +151,13 @@ function isCancel(err: unknown): boolean {
 
 /**
  * Hand the file to the phone's share sheet (AirDrop, Quick Share, "Open in
- * Avenza"). In the crew app that's Capacitor's Share plugin (through
- * window.Capacitor, per the integration contract), which needs the file
- * written to the cache folder first; on the website it's the Web Share API.
- * Must be called from a tap: browsers only allow sharing during one.
+ * Avenza"). In the crew app that's its own share sheet (shareNatively in
+ * src/lib/export.ts); on the website it's the Web Share API, which must be
+ * called from a tap: browsers only allow sharing during one.
  */
 export async function shareMapFile(file: File): Promise<'shared' | 'cancelled' | 'unsupported'> {
-  const cap = (window as unknown as { Capacitor?: CapacitorLike }).Capacitor
-  const { Filesystem, Share } = cap?.Plugins ?? {}
-  if (cap?.isNativePlatform?.() && Filesystem && Share) {
-    try {
-      const { uri } = await Filesystem.writeFile({
-        path: `shared-maps/${file.name}`,
-        data: await toBase64(file),
-        directory: 'CACHE',
-        recursive: true,
-      })
-      await Share.share({ title: file.name, files: [uri], dialogTitle: 'Send map' })
-      return 'shared'
-    } catch (err) {
-      if (isCancel(err)) return 'cancelled'
-      throw err
-    }
-  }
+  const native = await shareNatively(file)
+  if (native) return native
   if (navigator.canShare?.({ files: [file] })) {
     try {
       await navigator.share({ files: [file], title: file.name })

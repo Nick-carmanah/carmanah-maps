@@ -395,7 +395,6 @@ function tileStatus(t: TileCheck | null): { text: string; warn: boolean; block?:
       const pct = Math.max(1, Math.round((t.basemapBlank / t.basemapTotal) * 100))
       return { text: `about ${pct}% of this area isn't saved offline and will be blank`, warn: true }
     }
-    if (t.labelsMissing) return { text: "label fonts aren't saved offline, so names may be missing", warn: true }
     return { text: t.coarser ? 'offline: parts drawn from less detailed saved tiles' : 'offline: this area is saved', warn: false }
   }
   return t.notSaved > 0 ? { text: `${t.notSaved} map tiles will download`, warn: false } : null

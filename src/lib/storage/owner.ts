@@ -29,6 +29,8 @@ export interface MapsContext {
   ownerId: string
   /** The fire the person is on, if the hand-off says. */
   fireNumber?: string
+  /** The person's call sign (e.g. "2P14"), if the hand-off says. */
+  callSign?: string
 }
 
 function cleanText(value: unknown, max = 40): string | undefined {
@@ -49,7 +51,11 @@ export function parseMapsContext(raw: string | null): MapsContext {
     // Not JSON: treat as no hand-off.
   }
   const ownerId = isOwnerId(data.ownerId) ? data.ownerId : GUEST_OWNER
-  return { ownerId, fireNumber: cleanText(data.fireNumber ?? data.fire_number ?? data.fire) }
+  return {
+    ownerId,
+    fireNumber: cleanText(data.fireNumber ?? data.fire_number ?? data.fire),
+    callSign: cleanText(data.callSign ?? data.call_sign ?? data.callsign),
+  }
 }
 
 export function readMapsContext(): MapsContext {

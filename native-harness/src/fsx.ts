@@ -137,13 +137,28 @@ export function fmtBytes(n: number): string {
 // maps/_harness/results/<name>.json, which the Mac reads back. Buttons in the
 // UI run the same functions.
 
-export interface Command { page: 'index' | 'tools' | 'storage'; action: string; args?: Record<string, unknown> }
+// page "maps" opens the embedded maps build (npm run sync:maps puts it at
+// maps/, with Capacitor's core script at /capacitor.js as the crew app does).
+// That page doesn't read commands, so it's marked done before going there.
+// args.mapsContext stands in for the crew app's hand-off: an object is
+// written to carmanah.mapsContext.v1 (same origin as the maps page), null
+// removes it.
+export interface Command { page: 'index' | 'tools' | 'storage' | 'maps'; action: string; args?: Record<string, unknown> }
 
 export async function takeCommand(page: Command['page']): Promise<Command | null> {
   const p = `${HARNESS}/command.json`
   if (!(await exists(p))) return null
   let cmd: Command
   try { cmd = JSON.parse(await readText(p)) } catch { await remove(p); return null }
+  if (cmd.page === 'maps') {
+    await remove(p)
+    const handOff = cmd.args?.mapsContext
+    if (handOff === null) localStorage.removeItem('carmanah.mapsContext.v1')
+    else if (handOff !== undefined) localStorage.setItem('carmanah.mapsContext.v1', JSON.stringify(handOff))
+    await saveResult('done', { opened: 'maps' })
+    location.href = './maps/index.html'
+    return null
+  }
   if (cmd.page !== page) {
     location.href = `./${cmd.page}.html`
     return null

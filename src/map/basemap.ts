@@ -10,8 +10,25 @@ import libertyStyle from './openfreemap-liberty.json'
 
 /** TileJSON for the vector tiles; its tile URLs carry a weekly build version. */
 export const TILEJSON_URL = 'https://tiles.openfreemap.org/planet'
-export const GLYPHS_URL = libertyStyle.glyphs
-export const SPRITE_URL = libertyStyle.sprite
+
+// Label fonts (glyph PBFs) and map icons (sprites) ship with the app in
+// public/basemap/ instead of coming from Liberty's OpenFreeMap URLs, so labels
+// and symbols draw offline from the first launch, on the website and in the
+// crew app alike. Refresh them with scripts/fetch-basemap-assets.mjs.
+// Absolute URLs: MapLibre fills in {fontstack} and {range} itself, and
+// new URL() would percent-encode the braces.
+const ASSETS = `${
+  typeof location === 'undefined'
+    ? import.meta.env.BASE_URL
+    : new URL(import.meta.env.BASE_URL, location.href).href
+}basemap/`
+export const GLYPHS_URL = `${ASSETS}fonts/{fontstack}/{range}.pbf`
+export const SPRITE_URL = `${ASSETS}sprites/ofm`
+/** Glyph ranges bundled for each font: Latin, Latin extended A/B, IPA and
+ * spacing modifiers, combining marks (First Nations place names), Latin
+ * extended additional, punctuation. MapLibre draws anything else with a
+ * system font. */
+export const GLYPH_RANGES = ['0-255', '256-511', '512-767', '768-1023', '7680-7935', '8192-8447']
 
 // Recolour toward the standard OpenStreetMap map this app started with — green
 // forest, OSM-blue water, pink/salmon/orange/yellow roads by class, dark rail.
