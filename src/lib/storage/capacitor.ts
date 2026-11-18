@@ -30,6 +30,7 @@ export interface FilesystemPlugin {
   rmdir(o: FsPathOptions & { recursive?: boolean }): Promise<void>
   rename(o: { from: string; to: string; directory: string; toDirectory?: string }): Promise<void>
   getUri(o: FsPathOptions): Promise<{ uri: string }>
+  readdir(o: FsPathOptions): Promise<{ files: { name: string; type: 'file' | 'directory'; size: number }[] }>
 }
 
 export interface SharePlugin {
@@ -47,7 +48,7 @@ export interface CapacitorGlobal {
   PluginHeaders?: { name: string }[]
 }
 
-const FS_METHODS = ['writeFile', 'appendFile', 'readFile', 'stat', 'deleteFile', 'rmdir', 'rename', 'getUri'] as const
+const FS_METHODS = ['writeFile', 'appendFile', 'readFile', 'stat', 'deleteFile', 'rmdir', 'rename', 'getUri', 'readdir'] as const
 
 /** `window.Capacitor` when this page runs inside the native app, else null. */
 export function nativeCapacitor(): CapacitorGlobal | null {

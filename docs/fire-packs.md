@@ -67,7 +67,7 @@ Both the phone and the Mac cut packs the same way, with the same code
 4. **The write**. The prefix (header and directories), then each read's
    tiles in order. The file grows only by whole reads, so after a dropped
    connection, the size of the partly written file says which read comes
-   next (`resumeAt`). The phone downloads that way (next PR); the Mac writes
+   next (`resumeAt`). The phone downloads that way (§5); the Mac writes
    `<file>.part` and renames it when complete.
 
 **Terrain.** The phone cuts it from the BC-wide terrain archive like the
@@ -211,15 +211,133 @@ someone over AirDrop.
 
 ---
 
-## 5. Where this goes next
+## 5. In the app
 
-- **The app** (next PR): "Download this fire" from a live BCWS perimeter, an
-  imported polygon or a drawn area. It shows the size before downloading,
-  downloads resumably into `maps/_packs/`, and MapLibre reads packs before
-  the network. It also has a pack list, works in the embedded build, and
-  keeps a small-area path from OpenFreeMap that stays under their caps.
+![My Maps: the Base map row, with "Offline areas: 1 saved · 9.8 MB" under it](fire-packs/my-maps-offline-areas.jpg)
+
+| Size before downloading (website) | Lost signal mid-download (iOS app) | No network (website) | No network (iOS app) |
+|---|---|---|---|
+| ![The Offline maps sheet: fire C40983 chosen with a 5 km buffer, "9.8 MB · 2,116 tiles", a Download button, and a ready-made pack below](fire-packs/web-size-before-download.jpg) | ![The sheet in the iOS app: "Waiting for signal… 28%" with Pause and Delete](fire-packs/ios-waiting-for-signal.jpg) | ![The fire area at zoom 9.5 with roads, lakes, hillshade and the fire perimeter, drawn while no internet host could be reached](fire-packs/web-offline-fire.jpg) | ![The same area in the iOS app, on a page that can reach no http(s) host at all](fire-packs/ios-offline-fire.jpg) |
+
+**My Maps → Base map → Offline areas** (the line under the Base map row,
+with what's saved, as Avenza lists a base map's downloads) opens the base
+map with the Offline maps sheet. So does the **Offline maps** button above the
+map's bottom-right corner. Both work on the website and in the crew app. The
+sheet lists the packs on this phone and has **Download an area**:
+
+- **A fire**: a live BCWS fire perimeter (Layers → Live fires on), nearest
+  to the map first.
+- **My area**: any area in My Data, drawn or imported (KML/KMZ/shapefile
+  perimeters land there).
+- **This view**: what's on screen.
+
+Each takes a buffer of 0, 2, 5 (the default) or 10 km. **Check size** plans
+the cut from the bucket's archives, reading their index only, and shows the
+exact size and tile count before anything downloads. For C40983 that's
+"9.8 MB · 2,116 tiles". **Download** runs in the background of the page:
+
+- **Resumes.** Files are written as `<name>.part`, one Range read (≤ 2 MB) at
+  a time. A dropped connection waits and retries ("Waiting for signal…"),
+  and comes back early when the phone says it's online. A download running
+  when the app closed carries on by itself at the next start; a paused one
+  waits for **Resume**. After a restart it re-reads the index (pinned to the
+  archive's ETag) and the `.part` file's size says where to carry on.
+- **Checks.** Every read must be a 206 with the exact bytes and the same
+  ETag; a replaced archive stops the download with a clear message instead
+  of mixing builds. Each finished file is read back from storage and hashed
+  (sha256). A ready-made pack's hash must match its `pack.json`; a cut's hash
+  is recorded in the phone's `pack.json`. Then `.part` is renamed into place,
+  and `pack.json` is written last.
+- **Where.** `maps/_packs/<packId>/` through the shared pack store
+  (`openSharedPackFiles()` in `src/lib/storage/files.ts`): Capacitor
+  Filesystem `LibraryNoCloud` in the crew app, OPFS on the website (Chrome,
+  Firefox, Safari 26+). Website storage is best-effort and the sheet says so;
+  it asks the browser to keep it (`navigator.storage.persist()`).
+- **Ready-made packs** in the catalog are listed under **Ready-made** and
+  download whole the same way.
+- **No bucket, or outside it**: small areas (≤ 3,000 basemap tiles) still
+  save, tile by tile from OpenFreeMap (4 at a time, within its terms) and AWS,
+  into a pack the same shape. This is how the app works until
+  `VITE_PACKS_URL` points at the bucket.
+
+Each pack shows its size and date, with **Show** (fit the map to it) and
+**Delete**.
+
+**Reading packs** (`src/lib/packs/protocol.ts`, `registry.ts`). The style
+keeps its normal network URLs. MapLibre's `transformRequest` sends a tile to
+the `carmanah-pack://` protocol when a pack's bounds and zooms cover it, with
+the network URL as the fallback. The protocol reads the newest pack that has
+the tile, else fetches the network URL. With no packs nothing changes. The
+basemap's TileJSON always goes through the protocol. Online it's fetched
+and a copy is kept (shared IndexedDB). Offline the protocol uses that copy,
+or builds one from the newest pack's planet build. So the basemap starts
+offline even in the crew app, which has no service worker of ours.
+Elevation (`src/lib/elevation.ts`) and "Send this area as a map"
+(`src/map/print-render.ts`) read packs too.
+
+Terrain in the live style now stops at z12 (`src/map/basemap.ts`), like the
+packs, and MapLibre stretches it above that. So hillshade looks the same
+with and without signal, and online use drops (z13–14 terrain tiles average
+~110 kB).
+
+The old tile-by-tile "Save offline" into the service worker's cache is
+retired from the map (`downloadMapPack` in `src/lib/mappacks.ts` is no
+longer called). Areas saved that way before still show offline on the
+website: the service worker keeps serving them.
+
+### Build setting
+
+`VITE_PACKS_URL` is the bucket's public base URL, e.g.
+
+```bash
+VITE_PACKS_URL=https://pub-XXXX.r2.dev/ npm run build:embedded
+```
+
+Unset (as today), the app offers small areas only.
+
+### Verified (2026-11-18)
+
+Against a local stand-in for R2 (`npm run packs:serve`, same ranges, ETags
+and CORS, throttled to field speeds). It held a 2,032,587 ha "Cariboo" cut
+of the planet (basemap 22.4 MB, terrain 32 MB, built with
+`--area <file>.geojson`) and the ready-made C40983 pack. Results are in the
+fire-packs PR.
+
+- **Website build, headless Chrome.**
+  1. "A fire" → C40983 → Check size: 9.8 MB · 2,116 tiles.
+  2. Killed the bucket at 20%: "Waiting for signal… 20%". Brought it back,
+     and the download carried on.
+  3. Reloaded the app at 66%: it carried on by itself at 67%.
+  4. Both files in OPFS matched their sha256.
+  5. Relaunched Chrome with every internet host unresolvable, and the bucket
+     and web server stopped. The app started from its service worker and drew
+     the fire at z9.5, z12.5 and z14.6 from the pack, hillshade included. The
+     service worker's own tile cache had been emptied first.
+- **iOS simulator, native store** (`native-harness/`, embedded build, iOS
+  27.2).
+  1. Same fire, same size shown.
+  2. Bucket killed at 28%; the app terminated at 57%. Relaunched, it carried
+     on from the `.part` file (67% six seconds later).
+  3. `Library/NoCloud/maps/_packs/c40983-20261118/` held `basemap.pmtiles`,
+     `terrain.pmtiles` and `pack.json`, both sha256 right, no `.part` or
+     `job.json` left.
+  4. A copy of the page whose Content-Security-Policy allows no http(s) at
+     all drew the fire at z9.5–14.5 from the pack. Its only blocked requests
+     were the TileJSON's network try and terrain for the start view, which
+     lies outside the pack.
+
+## 6. Where this goes next
+
 - **Satellite**: one more file per pack (`satellite.pmtiles`, source
   `satellite`), cut the same way from `imagery/…` once that archive exists.
+- **Background downloads** in the crew app (the download pauses while the
+  app is in the background and carries on when it's back) would need
+  `@capacitor/file-transfer`, a crew-app change
+  ([spike §6](native-storage-spike.md#6-specs-for-the-carmanah-app-master-crew-app-mobile)).
+- **Free space**: the sheet doesn't check it before a download (Filesystem
+  can't report it; `@capacitor/device` could). A full disk fails the write,
+  and the download stops with that message.
 - **Terrain as lossless WebP** would cut terrain by roughly a third. MapLibre
-  reads WebP DEM tiles. Not done: the live map uses AWS's PNGs, and both should
-  match.
+  reads WebP DEM tiles.
+- **Sharing a pack** phone to phone (AirDrop/Quick Share) and importing one:
+  the files and `pack.json` with its sha256 are ready for it.

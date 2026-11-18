@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import type { Position } from 'geojson'
 import { formatBytes } from '../lib/library/library'
 import { UNSORTED, type LibraryMap } from '../lib/library/types'
@@ -9,6 +9,8 @@ import { formatDistance } from '../lib/units'
 import { useUnitSettings } from '../hooks/useUnitSettings'
 import type { FileStore } from '../lib/storage/files'
 import { EMBEDDED } from '../lib/embedded'
+import { packRegistry } from '../lib/packs/registry'
+import { formatMB } from '../lib/packs/format'
 import './MapsLibrary.css'
 
 type Patch = Partial<Omit<LibraryMap, 'id'>>
@@ -36,6 +38,8 @@ interface MyMapsProps {
   onShare: (file: File) => void
   /** Re-draw an older single-image map as sharp tiles from its original. */
   onSharpen: (map: LibraryMap) => void
+  /** Open the base map with the Offline maps sheet (fire packs, docs/fire-packs.md). */
+  onOfflineAreas: () => void
 }
 
 const folderLabel = (folder: string) => folder || UNSORTED
@@ -63,6 +67,7 @@ export default function MyMaps({
   readOriginal,
   onShare,
   onSharpen,
+  onOfflineAreas,
 }: MyMapsProps) {
   const [filter, setFilter] = useState('')
   const [openId, setOpenId] = useState<string | null>(null)
@@ -196,6 +201,7 @@ export default function MyMaps({
           isCurrent={current.kind === 'base'}
           onOpen={() => onOpen({ kind: 'base' })}
           onSetBasemap={onSetBasemap}
+          onOfflineAreas={onOfflineAreas}
         />
 
         {maps.length > 0 && (
@@ -271,13 +277,26 @@ function BaseMapRow({
   isCurrent,
   onOpen,
   onSetBasemap,
+  onOfflineAreas,
 }: {
   basemap: Basemap
   satelliteOk: boolean
   isCurrent: boolean
   onOpen: () => void
   onSetBasemap: (b: Basemap) => void
+  onOfflineAreas: () => void
 }) {
+  // The offline areas (fire packs) saved on this phone, as Avenza lists a base map's downloads.
+  const offline = useSyncExternalStore(
+    (fn) => packRegistry.subscribe(fn),
+    () => {
+      const n = packRegistry.packs.length
+      const bytes = packRegistry.packs.reduce((s, p) => s + p.bytes, 0)
+      const partial = packRegistry.jobs.length
+      return n ? `${n} saved · ${formatMB(bytes)}${partial ? ` · ${partial} unfinished` : ''}` : partial ? `${partial} unfinished` : 'None saved yet'
+    },
+  )
+  useEffect(() => void packRegistry.load(), [])
   return (
     <div className={`map-row base-row${isCurrent ? ' current' : ''}`}>
       <div className="map-row-main">
@@ -302,6 +321,12 @@ function BaseMapRow({
           ))}
         </div>
       </div>
+      <button className="base-offline" onClick={onOfflineAreas}>
+        <span>
+          ⬇ Offline areas <span className="map-meta">{offline}</span>
+        </span>
+        <span aria-hidden>›</span>
+      </button>
     </div>
   )
 }
