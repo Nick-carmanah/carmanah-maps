@@ -1,6 +1,7 @@
 import type { Feature, FeatureCollection, Position } from 'geojson'
 import { haversineMeters } from './measure'
 import type { UserFeature } from './features'
+import { splitSegments } from './track'
 
 export const DEFAULT_FENCE_RADIUS_M = 500
 
@@ -48,7 +49,10 @@ export function insideFence(position: Position, feature: UserFeature): boolean {
     return haversineMeters(position, feature.coordinates as Position) <= radius
   }
   if (feature.kind === 'line') {
-    return distToPolylineM(position, feature.coordinates as Position[]) <= radius
+    // A paused track's gaps are not part of the line.
+    return splitSegments(feature.coordinates as Position[], feature.segmentStarts).some(
+      (seg) => distToPolylineM(position, seg) <= radius,
+    )
   }
   return (
     pointInRing(position, feature.coordinates as Position[]) &&
@@ -97,7 +101,10 @@ export function fenceShapes(features: UserFeature[]): FeatureCollection {
       shapes.push({
         type: 'Feature',
         properties: {},
-        geometry: { type: 'LineString', coordinates: f.coordinates as Position[] },
+        geometry: {
+          type: 'MultiLineString',
+          coordinates: splitSegments(f.coordinates as Position[], f.segmentStarts),
+        },
       })
     }
   }

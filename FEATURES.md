@@ -29,6 +29,10 @@ Legend: ✅ done · 🟡 partial · ⬜ todo · ➕ ours (no Avenza equivalent)
 |---|---|---|---|
 | Real-time GPS position on map | Free | ✅ | Geolocate control w/ tracking |
 | Record GPS tracks (distance/time/speed/elevation) | Free | ✅ | Foreground recording w/ wake lock, live stats chip; background tracking needs Capacitor (v2) |
+| Pause / resume a track | Free | ✅ | Pause leaves a gap (no straight jump); distance, time, speed and climb leave the gap out. Saved as one track with segments: gx:MultiTrack in KML, one `<trkseg>` per segment in GPX, read back as one track |
+| GPS info panel | Free | ✅ | Tools → GPS info: position in the chosen format, accuracy, altitude ± accuracy, speed, heading, time of last fix; all in the unit settings |
+| Plot GPS average | Pro | ✅ | Tools → Plot GPS average: stop manually, after 30/60 s or 20/60 fixes; discards fixes worse than a limit (default 20 m) and multipath jumps; live count, accuracy, spread; saves a placemark with fix count, mean accuracy, spread, start/end time |
+| View in Google Maps | Free | ✅ | Crosshair (Tools) or any feature (its sheet); says "needs signal" offline |
 | Convert tracks to areas | Pro | ✅ | Save-as-area in the stop/review step |
 | Navigation/path tools (navigate to placemark: bearing, distance, ETA) | Free | ✅ | Navigate from feature sheet: live distance/bearing/ETA/speed chip + dashed guidance line; bearings in °/mils, true or magnetic (offline WMM2025) |
 | Map rotation & compass | Free | 🟡 | Rotation works (drag/ctrl); needs device-compass north-up toggle on mobile |
@@ -48,6 +52,7 @@ Legend: ✅ done · 🟡 partial · ⬜ todo · ➕ ours (no Avenza equivalent)
 | Draw & save lines and areas | Free | ✅ | Measure sketch → Save line / Save area |
 | Measure distance & area | Free | ✅ | Geodesic km + hectares |
 | Geotagged photos on placemarks | Free | ✅ | Camera/photo picker per feature; thumbnails + full-screen viewer; blobs in IndexedDB |
+| Plot photos (geotagged photos → placemarks) | Free | ✅ | Tools → Plot photos: EXIF GPS position, time and direction read offline (JPEG, HEIC, PNG; own reader, no library) → placemarks in a "Photo Library" layer with the photo attached; photos without GPS are listed and skipped |
 | Attribute schema management (custom fields) | Free/Pro | ✅ | Typed per-layer schema (text, whole number, decimal, yes/no) with pick lists, edited in the layer sheet; per-feature extra fields too. Exported as Avenza `<Schema>`/`<SchemaData>` + `avenza:picklist` |
 | Custom symbol sets | Pro | ✅ | Built-in fire-ops set: DP, helispot, safety zone, staging, water, pump, medical, hazard, danger tree, hotspot, structure, beehive, camp. User-imported sets later |
 | Customize symbols/colors per feature | Free | ✅ | Color swatches + symbol picker in edit sheet |
@@ -99,7 +104,7 @@ layer/link confusion, OneDrive as a makeshift hub).
 | Master/Day/Specialty layers; copy features into layers to share | ⬜ Layer/folder system with an "active day layer" for new features |
 | OneDrive/Teams as shared hub; "layer not linked to map" pain | ⬜ Solved properly by Carmanah account layer sync (v1.5) |
 | Geofences for airspace management / aviation safety | ✅ Already built |
-| Plot drone photos to reconstruct a track | ⬜ EXIF-GPS photo import |
+| Plot drone photos to reconstruct a track | 🟡 Plot photos places each geotagged photo; joining them into a track is not done |
 
 ## Avenza tutorial audit (2026-07-12)
 

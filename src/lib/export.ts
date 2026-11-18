@@ -12,6 +12,9 @@
  * - GPX: placemarks as waypoints, lines/tracks (with times) and areas as tracks.
  * - CSV: placemarks only, one column per attribute.
  *
+ * A track that was paused keeps its gaps: gx:MultiTrack (one gx:Track per
+ * segment, no interpolation) in KML, one <trkseg> per segment in GPX.
+ *
  * Plain KML 2.2 in XSD element order; the only extensions are gx:Track and
  * namespaced elements inside Document <ExtendedData> (allowed by KML 2.2).
  * Format notes and assumptions: docs/avenza-layers.md.
@@ -23,6 +26,7 @@ import { KML_TYPE, layerTree, type AttrField, type Layer } from './layers'
 import { AVENZA_NS, CARMANAH_NS, GX_NS, KML_NS, NOTES_FIELD, PHOTOS_FIELD } from './kml'
 import { dotPng, symbolLabel } from './symbols'
 import { toCsv } from './csv'
+import { splitSegments } from './track'
 
 export type ExportFormat = 'kmz' | 'kml' | 'gpx' | 'csv'
 
@@ -257,13 +261,21 @@ export function featuresToKml(input: ExportInput, opts: ExportOptions, assets: K
       geom = `<Point><coordinates>${coordStr(f.coordinates as Position)}</coordinates></Point>`
     } else if (f.kind === 'line' && isTrack(f) && !opts.tracksAsLines) {
       const pts = f.coordinates as Position[]
-      geom =
+      const track = (seg: number[]) =>
         `<gx:Track>` +
-        f.times!.map((t) => `<when>${iso(t)}</when>`).join('') +
-        pts.map((p) => `<gx:coord>${num(p[0])} ${num(p[1])} ${num(p[2] ?? 0)}</gx:coord>`).join('') +
+        seg.map((i) => `<when>${iso(f.times![i])}</when>`).join('') +
+        seg.map((i) => `<gx:coord>${num(pts[i][0])} ${num(pts[i][1])} ${num(pts[i][2] ?? 0)}</gx:coord>`).join('') +
         `</gx:Track>`
+      const segs = splitSegments(pts.map((_, i) => i), f.segmentStarts)
+      geom =
+        segs.length > 1
+          ? `<gx:MultiTrack><gx:interpolate>0</gx:interpolate>${segs.map(track).join('')}</gx:MultiTrack>`
+          : track(segs[0])
     } else if (f.kind === 'line') {
-      geom = `<LineString><tessellate>1</tessellate><coordinates>${(f.coordinates as Position[]).map(coordStr).join(' ')}</coordinates></LineString>`
+      const line = (c: Position[]) =>
+        `<LineString><tessellate>1</tessellate><coordinates>${c.map(coordStr).join(' ')}</coordinates></LineString>`
+      const segs = splitSegments(f.coordinates as Position[], f.segmentStarts)
+      geom = segs.length > 1 ? `<MultiGeometry>${segs.map(line).join('')}</MultiGeometry>` : line(segs[0])
     } else {
       const ring = (r: Position[]) =>
         `<LinearRing><coordinates>${[...r, r[0]].map(coordStr).join(' ')}</coordinates></LinearRing>`
@@ -403,10 +415,18 @@ export function featuresToGpx(input: ExportInput, opts: ExportOptions): string {
       const pts = f.coordinates as Position[]
       const ring = f.kind === 'area' ? [...pts, pts[0]] : pts
       const times = isTrack(f) && !opts.tracksAsLines ? f.times : undefined
-      const trkpts = ring.map((p, i) => `      ${pt('trkpt', p, times?.[i])}`).join('\n')
+      // A paused track: one <trkseg> per segment ("start a new Track Segment
+      // for each continuous span", GPX 1.1).
+      const segs = splitSegments(
+        ring.map((_, i) => i),
+        f.kind === 'line' ? f.segmentStarts : undefined,
+      )
+      const trksegs = segs
+        .map((seg) => `    <trkseg>\n${seg.map((i) => `      ${pt('trkpt', ring[i], times?.[i])}`).join('\n')}\n    </trkseg>`)
+        .join('\n')
       return (
         `  <trk><name>${esc(f.name)}</name>${f.notes ? `<desc>${esc(f.notes)}</desc>` : ''}\n` +
-        `    <trkseg>\n${trkpts}\n    </trkseg>\n  </trk>`
+        `${trksegs}\n  </trk>`
       )
     })
   return (

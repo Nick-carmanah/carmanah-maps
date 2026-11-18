@@ -22,6 +22,7 @@ import {
 import { NWCG_SYMBOLS } from './nwcg'
 import { TRACK_TYPES } from './naming'
 import type { FeaturePhoto, IconAsset } from './store'
+import { startsOfParts } from './track'
 
 /** Avenza's four attribute types ("String, Boolean, Real, Integer"). A
  * picklist is an optional list of suggested values on any of them. */
@@ -459,6 +460,24 @@ export class ImportBuilder {
       if (keep.length) f.holes = keep
       out.push(f)
     }
+    // A timed multi-part line (KML gx:MultiTrack, a GPX <trk> with several
+    // <trkseg>) is one track with gaps, as a paused recording saves it.
+    const track = (parts: Position[][], times: number[][]): boolean => {
+      if (
+        parts.length < 2 ||
+        times.length !== parts.length ||
+        parts.some((c, i) => c.length < 2 || times[i]?.length !== c.length || !c.every(validPos))
+      ) {
+        return false
+      }
+      out.push({
+        ...base('line'),
+        coordinates: parts.flat(),
+        times: times.flat(),
+        segmentStarts: startsOfParts(parts),
+      })
+      return true
+    }
     const partTimes = (i: number): number[] | undefined => {
       const t = init.times
       if (!t?.length) return undefined
@@ -473,6 +492,7 @@ export class ImportBuilder {
         case 'LineString':
           return line(g.coordinates, partTimes(0))
         case 'MultiLineString':
+          if (Array.isArray(init.times?.[0]) && track(g.coordinates, init.times as number[][])) return
           return g.coordinates.forEach((c, i) => line(c, partTimes(i)))
         case 'Polygon':
           return area(g.coordinates)
