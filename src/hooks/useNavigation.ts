@@ -11,6 +11,8 @@ export interface NavState {
   bearing: number | null
   /** Estimated seconds to target at current smoothed speed, if moving. */
   etaS: number | null
+  /** Smoothed ground speed over the last few fixes (m/s), if moving. */
+  speedMps: number | null
 }
 
 export function navTargetPosition(feature: UserFeature): Position {
@@ -43,7 +45,7 @@ export function useNavigation(
   }, [target?.id])
 
   if (!target || !position) {
-    return { position: null, distanceM: null, bearing: null, etaS: null }
+    return { position: null, distanceM: null, bearing: null, etaS: null, speedMps: null }
   }
 
   const targetPos = navTargetPosition(target)
@@ -52,6 +54,7 @@ export function useNavigation(
 
   // Smoothed ground speed over the last few fixes → ETA when actually moving.
   let etaS: number | null = null
+  let speedMps: number | null = null
   const fixes = fixesRef.current
   if (fixes.length >= 2) {
     const first = fixes[0]
@@ -63,9 +66,12 @@ export function useNavigation(
         travelled += haversineMeters(fixes[i - 1].position, fixes[i].position)
       }
       const speed = travelled / dt
-      if (speed > 0.4) etaS = distanceM / speed
+      if (speed > 0.4) {
+        etaS = distanceM / speed
+        speedMps = speed
+      }
     }
   }
 
-  return { position, distanceM, bearing, etaS }
+  return { position, distanceM, bearing, etaS, speedMps }
 }
