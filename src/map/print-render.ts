@@ -8,14 +8,16 @@ import type { FeatureCollection } from 'geojson'
 import { GLYPHS_URL, MAP_FONTSTACKS, MAP_STYLE, SPRITE_URL, TILEJSON_URL } from './basemap'
 import { tileCacheKey } from '../lib/mappacks'
 import {
+  DEFAULT_FILL_OPACITY,
+  DEFAULT_LINE_WIDTH,
   FIRE_SYMBOLS,
-  featureLayer,
-  featuresToGeoJSON,
   renderSymbolImage,
   type UserFeature,
 } from '../lib/features'
+import { visibleStyledFeatures, type Layer } from '../lib/layers'
 import { NWCG_SYMBOLS, nwcgIconUrl } from '../lib/nwcg'
-import type { Overlay } from '../lib/store'
+import { ICON_PREFIX, isImportedIcon } from '../lib/symbols'
+import { getIcon } from '../lib/store'
 import { STATUS_COLORS, STATUS_FALLBACK_COLOR, type LiveFires } from '../lib/livefires'
 import {
   encodeRgbFlate,
@@ -48,29 +50,42 @@ const PIECE_TIMEOUT_MS = 90_000
 // ---- What's on the map ------------------------------------------------------
 
 export interface PrintLayers {
-  /** The user's pins, lines, areas and tracks that are showing. */
+  /**
+   * Every feature in a visible layer (imported ones included), in layer
+   * order, each with its own style: color, width, fill, fillOpacity, symbol.
+   */
   features: FeatureCollection
-  /** Imported KML/KMZ/GPX/shapefile overlays that are showing. */
-  overlays: FeatureCollection[]
   /** BC Wildfire Service live fires, when that layer is on. */
   liveFires: { points: FeatureCollection; perimeters: FeatureCollection | null; fetchedAt: number } | null
 }
 
 /**
- * The visible layers, read from the app's state. This is the only place the
- * tool reads the feature model, so if that model changes, change this.
+ * The visible layers, read through the layer model's read API
+ * (visibleStyledFeatures). This is the only place the tool reads features.
  */
 export function printableLayers(state: {
-  userFeatures: UserFeature[]
-  hiddenLayers: Set<string>
-  overlays: Overlay[]
-  hiddenIds: Set<string>
+  layers: Layer[]
+  features: UserFeature[]
   liveFires: LiveFires | null
   showLivePerimeters: boolean
 }): PrintLayers {
   return {
-    features: featuresToGeoJSON(state.userFeatures.filter((f) => !state.hiddenLayers.has(featureLayer(f)))),
-    overlays: state.overlays.filter((o) => !state.hiddenIds.has(o.id)).map((o) => o.geojson),
+    features: {
+      type: 'FeatureCollection',
+      features: visibleStyledFeatures(state.layers, state.features).map(({ feature, geometry, style }) => ({
+        type: 'Feature',
+        properties: {
+          id: feature.id,
+          name: feature.name,
+          color: style.color,
+          width: style.width,
+          fill: style.fill,
+          fillOpacity: style.fillOpacity,
+          symbol: style.symbol ?? '',
+        },
+        geometry,
+      })),
+    },
     liveFires: state.liveFires
       ? {
           points: state.liveFires.points,
@@ -320,21 +335,26 @@ const STATUS_COLOR = [
 
 const LABEL_PAINT = { 'text-color': '#ffffff', 'text-halo-color': '#000000', 'text-halo-width': 1.5 }
 
-/** The user's layers, styled as MapView draws them on screen. */
+/** The user's layers, styled as MapView draws them on screen (uf-* layers there). */
 async function addPrintLayers(map: MlMap, layers: PrintLayers): Promise<void> {
   for (const key of Object.keys(FIRE_SYMBOLS)) {
     map.addImage(`sym-${key}`, renderSymbolImage(key), { pixelRatio: 2 })
   }
-  const nwcgKeys = new Set(
-    layers.features.features
-      .map((f) => String(f.properties?.symbol ?? ''))
-      .filter((s) => s.startsWith('nwcg-')),
-  )
+  // NWCG icons (app files) and icons restored from imported KMZs (IndexedDB),
+  // sized as MapView sizes them.
+  const keys = new Set(layers.features.features.map((f) => String(f.properties?.symbol ?? '')))
   await Promise.all(
-    [...nwcgKeys].map(async (key) => {
-      const spec = NWCG_SYMBOLS.find((s) => s.key === key)
-      if (!spec) return
+    [...keys].map(async (key) => {
       try {
+        if (isImportedIcon(key)) {
+          const asset = await getIcon(key.slice(ICON_PREFIX.length))
+          if (!asset) return
+          const bitmap = await createImageBitmap(asset.blob)
+          map.addImage(`sym-${key}`, bitmap, { pixelRatio: Math.max(1, Math.max(bitmap.width, bitmap.height) / 28) })
+          return
+        }
+        const spec = NWCG_SYMBOLS.find((s) => s.key === key)
+        if (!spec) return
         const img = await map.loadImage(nwcgIconUrl(spec.file))
         map.addImage(`sym-${key}`, img.data, { pixelRatio: 2 })
       } catch {
@@ -388,73 +408,26 @@ async function addPrintLayers(map: MlMap, layers: PrintLayers): Promise<void> {
     })
   }
 
-  layers.overlays.forEach((data, i) => {
-    const id = `print-ov-${i}`
-    map.addSource(id, { type: 'geojson', data })
-    map.addLayer({
-      id: `${id}-fill`,
-      type: 'fill',
-      source: id,
-      filter: ['==', ['geometry-type'], 'Polygon'],
-      paint: {
-        'fill-color': ['coalesce', ['get', 'fill'], '#e11d1d'],
-        'fill-opacity': ['coalesce', ['get', 'fill-opacity'], 0.25],
-      },
-    })
-    map.addLayer({
-      id: `${id}-line`,
-      type: 'line',
-      source: id,
-      filter: ['in', ['geometry-type'], ['literal', ['Polygon', 'LineString']]],
-      paint: {
-        'line-color': ['coalesce', ['get', 'stroke'], '#e11d1d'],
-        'line-width': ['coalesce', ['get', 'stroke-width'], 2],
-        'line-opacity': ['coalesce', ['get', 'stroke-opacity'], 1],
-      },
-    })
-    map.addLayer({
-      id: `${id}-point`,
-      type: 'circle',
-      source: id,
-      filter: ['==', ['geometry-type'], 'Point'],
-      paint: {
-        'circle-radius': 6,
-        'circle-color': ['coalesce', ['get', 'marker-color'], '#e11d1d'],
-        'circle-stroke-width': 2,
-        'circle-stroke-color': '#ffffff',
-      },
-    })
-    map.addLayer({
-      id: `${id}-label`,
-      type: 'symbol',
-      source: id,
-      filter: ['==', ['geometry-type'], 'Point'],
-      layout: {
-        'text-field': ['coalesce', ['get', 'name'], ''],
-        'text-font': ['Noto Sans Regular'],
-        'text-size': 12,
-        'text-offset': [0, 1.1],
-        'text-anchor': 'top',
-        'text-optional': true,
-      },
-      paint: LABEL_PAINT,
-    })
-  })
-
   map.addSource('print-uf', { type: 'geojson', data: layers.features })
   map.addLayer({
     id: 'print-uf-fill',
     type: 'fill',
     source: 'print-uf',
     filter: ['==', ['geometry-type'], 'Polygon'],
-    paint: { 'fill-color': ['get', 'color'], 'fill-opacity': 0.25 },
+    paint: {
+      'fill-color': ['coalesce', ['get', 'fill'], ['get', 'color']],
+      'fill-opacity': ['coalesce', ['get', 'fillOpacity'], DEFAULT_FILL_OPACITY],
+    },
   })
   map.addLayer({
     id: 'print-uf-line',
     type: 'line',
     source: 'print-uf',
     filter: ['in', ['geometry-type'], ['literal', ['Polygon', 'LineString']]],
-    paint: { 'line-color': ['get', 'color'], 'line-width': 3 },
+    paint: {
+      'line-color': ['get', 'color'],
+      'line-width': ['coalesce', ['get', 'width'], DEFAULT_LINE_WIDTH],
+    },
   })
   map.addLayer({
     id: 'print-uf-pts',

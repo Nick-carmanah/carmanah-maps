@@ -2,57 +2,64 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Map as MlMap } from 'maplibre-gl'
 import MapView from './map/MapView'
 import LayerPanel from './components/LayerPanel'
+import LayerTree from './components/LayerTree'
+import LayerSheet from './components/LayerSheet'
+import ExportSheet from './components/ExportSheet'
 import QrScanner from './components/QrScanner'
 import SendAreaSheet from './components/SendAreaSheet'
 import { printableLayers } from './map/print-render'
 import FeatureSheet, { type PhotoThumb } from './components/FeatureSheet'
+import UnitsSettings from './components/UnitsSettings'
+import { buildExport, shareOrDownload, type ExportOptions } from './lib/export'
+import { DEFAULT_LAYERS, featuresToGeoJSON, type UserFeature } from './lib/features'
+import { fetchImportFromUrl, parseImportedFile } from './lib/importers'
 import {
-  featuresToCsv,
-  featuresToGpx,
-  featuresToKml,
-  featuresToKmz,
-  shareOrDownload,
-} from './lib/export'
-import { FEATURE_COLORS, featureLayer, type UserFeature } from './lib/features'
-import type { ExportFormat } from './components/LayerPanel'
-import { fetchKmlFromUrl, parseImportedFile, type ParsedKml } from './lib/kml'
+  childLayers,
+  DEFAULT_LAYER_COLOR,
+  hiddenLayerIds,
+  newLayer,
+  subtreeIds,
+  type ImportResult,
+  type Layer,
+} from './lib/layers'
+import { commitImport, deleteLayersAndFeatures, loadMyData } from './lib/mydata'
+import { symbolPng } from './lib/symbols'
+import { boundsOf } from './lib/geo'
 import { parseGeoPdfRegions, renderGeoPdfRegion } from './lib/geopdf'
 import { fetchLiveFires, type LiveFires } from './lib/livefires'
+import { pathLengthMeters, ringAreaSqMeters } from './lib/measure'
 import {
+  formatAltitude,
   formatArea,
+  formatBearing,
   formatDistance,
+  formatPace,
   formatSpeed,
-  getUnits,
-  pathLengthMeters,
-  ringAreaSqMeters,
-  setUnits,
-  type Units,
-} from './lib/measure'
+} from './lib/units'
+import { useUnitSettings } from './hooks/useUnitSettings'
 import { formatDuration, trackStats, useTrackRecorder } from './hooks/useTrackRecorder'
 import { conventionActive, buildConventionName, getProfile, saveProfile } from './lib/naming'
 import { navTargetPosition, useNavigation } from './hooks/useNavigation'
 import { useGeofences } from './hooks/useGeofences'
 import {
   deleteFeature,
-  deleteOverlay,
   deletePhoto,
   deletePhotosForFeature,
   deleteRaster,
   getCached,
-  listFeatures,
-  listOverlays,
   listPhotos,
   listRasters,
   requestPersistentStorage,
   saveFeature,
-  saveOverlay,
+  saveLayer,
   savePhoto,
   saveRaster,
   setCached,
-  type Overlay,
+  writeBatch,
   type RasterOverlay,
 } from './lib/store'
 import type { Position } from 'geojson'
+import type { LngLatBoundsLike } from 'maplibre-gl'
 
 const LIVE_CACHE_KEY = 'livefires'
 const LIVE_ENABLED_KEY = 'carmanah-live-enabled'
@@ -64,7 +71,6 @@ interface Toast {
 }
 
 export default function App() {
-  const [overlays, setOverlays] = useState<Overlay[]>([])
   const [rasterOverlays, setRasterOverlays] = useState<RasterOverlay[]>([])
   const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set())
   const [scanning, setScanning] = useState(false)
@@ -78,6 +84,15 @@ export default function App() {
     () => localStorage.getItem('carmanah-live-perims') !== '0',
   )
   const [userFeatures, setUserFeatures] = useState<UserFeature[]>([])
+  const userFeaturesRef = useRef<UserFeature[]>([])
+  userFeaturesRef.current = userFeatures
+  const [layers, setLayers] = useState<Layer[]>([])
+  const layersRef = useRef<Layer[]>([])
+  layersRef.current = layers
+  const hiddenLayers = useMemo(() => hiddenLayerIds(layers), [layers])
+  const [editingLayerId, setEditingLayerId] = useState<string | null>(null)
+  const [exportLayerIds, setExportLayerIds] = useState<string[] | null>(null)
+  const [exporting, setExporting] = useState(false)
   const [pinMode, setPinMode] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const track = useTrackRecorder((m, e) => showToastRef.current(m, e))
@@ -86,8 +101,8 @@ export default function App() {
   const [photos, setPhotos] = useState<PhotoThumb[]>([])
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [profile, setProfile] = useState(getProfile)
-  const [units, setUnitsState] = useState<Units>(getUnits)
-  const [hiddenLayers, setHiddenLayers] = useState<Set<string>>(new Set())
+  // Every number on screen follows these; re-render when one changes.
+  useUnitSettings()
   const [gridOn, setGridOn] = useState(() => localStorage.getItem('carmanah-grid') === '1')
   const [toolsOpen, setToolsOpen] = useState(false)
   const [sendAreaOpen, setSendAreaOpen] = useState(false)
@@ -105,38 +120,43 @@ export default function App() {
     () =>
       sendAreaOpen
         ? printableLayers({
-            userFeatures,
-            hiddenLayers,
-            overlays,
-            hiddenIds,
+            layers,
+            features: userFeatures,
             liveFires: liveEnabled ? liveData : null,
             showLivePerimeters: livePerimeters,
           })
         : null,
-    [sendAreaOpen, userFeatures, hiddenLayers, overlays, hiddenIds, liveEnabled, liveData, livePerimeters],
+    [sendAreaOpen, layers, userFeatures, liveEnabled, liveData, livePerimeters],
   )
-  const [focusRequest, setFocusRequest] = useState<{ id: string; nonce: number } | null>(null)
+  const [focusRequest, setFocusRequest] = useState<{
+    id: string
+    nonce: number
+    bounds?: LngLatBoundsLike | null
+  } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
   useEffect(() => {
     requestPersistentStorage()
-    listFeatures().then(setUserFeatures)
     listRasters().then(setRasterOverlays)
-    listOverlays().then((stored) => {
-      setOverlays(stored)
-      // Deep link: maps.carmanahwildfire.com?kml=<url> imports on open, so a
-      // fire QR scanned with the phone's native camera can land directly here.
-      const kmlParam = new URLSearchParams(location.search).get('kml')
-      if (kmlParam) {
-        history.replaceState(null, '', location.pathname)
-        if (stored.some((o) => o.sourceUrl === kmlParam)) return
-        showToast('Downloading map…')
-        fetchKmlFromUrl(kmlParam)
-          .then((parsed) => addOverlay(parsed, kmlParam))
-          .catch((err) => showToast((err as Error).message, true))
-      }
-    })
+    // Layers + features (the first run moves old data into layers).
+    loadMyData()
+      .then((data) => {
+        setLayers(data.layers)
+        setUserFeatures(data.features)
+        // Deep link: maps.carmanahwildfire.com?kml=<url> imports on open, so a
+        // fire QR scanned with the phone's native camera can land directly here.
+        const kmlParam = new URLSearchParams(location.search).get('kml')
+        if (kmlParam) {
+          history.replaceState(null, '', location.pathname)
+          if (data.layers.some((l) => l.source?.url === kmlParam)) return
+          showToast('Downloading map…')
+          fetchImportFromUrl(kmlParam)
+            .then((result) => handleImport(result))
+            .catch((err) => showToast((err as Error).message, true))
+        }
+      })
+      .catch((err) => showToast(`Could not load your saved data: ${(err as Error).message}`, true))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -197,21 +217,39 @@ export default function App() {
     setFocusRequest({ id, nonce: Date.now() })
   }, [])
 
-  const addOverlay = useCallback(
-    async (parsed: ParsedKml, sourceUrl?: string) => {
-      const overlay: Overlay = {
-        id: crypto.randomUUID(),
-        name: parsed.name,
-        addedAt: Date.now(),
-        sourceUrl,
-        geojson: parsed.geojson,
-      }
-      await saveOverlay(overlay)
-      setOverlays((prev) => [overlay, ...prev])
-      focusOverlay(overlay.id)
-      showToast(`Added "${overlay.name}" — saved for offline use`)
+  /** Fit the map to everything in a layer and its sublayers. */
+  const focusLayer = useCallback((id: string) => {
+    const ids = subtreeIds(layersRef.current, id)
+    const feats = userFeaturesRef.current.filter((f) => ids.has(f.layerId))
+    const bounds = feats.length ? boundsOf(featuresToGeoJSON(feats)) : null
+    if (bounds) setFocusRequest({ id, nonce: Date.now(), bounds })
+  }, [])
+
+  /** Save an import (layers, features, photos, icons) and show it. */
+  const handleImport = useCallback(
+    async (result: ImportResult) => {
+      // New top-level layers go below the existing ones.
+      let order = Math.max(-1, ...childLayers(layersRef.current, undefined).map((l) => l.order)) + 1
+      for (const l of result.layers) if (!l.parentId) l.order = order++
+      await commitImport(result)
+      setLayers((prev) => [...prev, ...result.layers])
+      setUserFeatures((prev) => [...prev, ...result.features])
+      const feats = result.features
+      const bounds = feats.length ? boundsOf(featuresToGeoJSON(feats)) : null
+      if (bounds) setFocusRequest({ id: result.layers[0]?.id ?? '', nonce: Date.now(), bounds })
+      const extras = [
+        result.photos.length && `${result.photos.length} photo${result.photos.length === 1 ? '' : 's'}`,
+        result.layers.length > 1 && `${result.layers.length} layers`,
+      ].filter(Boolean)
+      const warn = result.warnings.length ? ` (${result.warnings.join('; ')})` : ''
+      showToast(
+        `Added "${result.name}": ${feats.length} feature${feats.length === 1 ? '' : 's'}` +
+          (extras.length ? `, ${extras.join(', ')}` : '') +
+          ` — saved for offline use${warn}`,
+        result.warnings.length > 0,
+      )
     },
-    [focusOverlay, showToast],
+    [showToast],
   )
 
   const addRaster = useCallback(
@@ -277,14 +315,14 @@ export default function App() {
           if (file.name.toLowerCase().endsWith('.pdf')) {
             await handlePdfImport(file)
           } else {
-            await addOverlay(await parseImportedFile(file))
+            await handleImport(await parseImportedFile(file))
           }
         } catch (err) {
           showToast(`${file.name}: ${(err as Error).message}`, true)
         }
       }
     },
-    [addOverlay, handlePdfImport, showToast],
+    [handleImport, handlePdfImport, showToast],
   )
 
   const handleRemoveRaster = useCallback(async (id: string) => {
@@ -301,18 +339,87 @@ export default function App() {
       }
       showToast('Downloading map…')
       try {
-        await addOverlay(await fetchKmlFromUrl(text), text)
+        await handleImport(await fetchImportFromUrl(text))
       } catch (err) {
         showToast((err as Error).message, true)
       }
     },
-    [addOverlay, showToast],
+    [handleImport, showToast],
   )
 
-  const handleRemove = useCallback(async (id: string) => {
-    await deleteOverlay(id)
-    setOverlays((prev) => prev.filter((o) => o.id !== id))
+  // ---- Layers ----
+
+  /** Id of the user's own top-level layer with this name (never an imported
+   * one, so imports stay as they arrived); creates it if needed. */
+  const ensureLayer = useCallback((name: string): string => {
+    const existing = layersRef.current.find((l) => !l.parentId && !l.source && l.name === name)
+    if (existing) return existing.id
+    const roots = childLayers(layersRef.current, undefined)
+    const layer = newLayer(name, { order: Math.max(-1, ...roots.map((l) => l.order)) + 1 })
+    layersRef.current = [...layersRef.current, layer]
+    setLayers(layersRef.current)
+    saveLayer(layer)
+    return layer.id
   }, [])
+
+  const handleLayerChange = useCallback((layer: Layer) => {
+    setLayers((prev) => prev.map((l) => (l.id === layer.id ? layer : l)))
+    saveLayer(layer)
+  }, [])
+
+  const handleToggleLayer = useCallback(
+    (id: string) => {
+      const layer = layersRef.current.find((l) => l.id === id)
+      if (layer) handleLayerChange({ ...layer, visible: !layer.visible, updatedAt: Date.now() })
+    },
+    [handleLayerChange],
+  )
+
+  const handleNewLayer = useCallback(() => {
+    let n = 1
+    while (layersRef.current.some((l) => l.name === `Layer ${n}`)) n++
+    setEditingLayerId(ensureLayer(`Layer ${n}`))
+  }, [ensureLayer])
+
+  const handleRenameField = useCallback((layerId: string, from: string, to: string) => {
+    const layer = layersRef.current.find((l) => l.id === layerId)
+    if (!layer) return
+    const next = {
+      ...layer,
+      schema: layer.schema.map((f) => (f.name === from ? { ...f, name: to } : f)),
+      updatedAt: Date.now(),
+    }
+    const changed: UserFeature[] = []
+    setUserFeatures((prev) =>
+      prev.map((f) => {
+        if (f.layerId !== layerId || !f.attributes?.some((a) => a.k === from)) return f
+        const g = {
+          ...f,
+          attributes: f.attributes.map((a) => (a.k === from ? { k: to, v: a.v } : a)),
+          updatedAt: Date.now(),
+        }
+        changed.push(g)
+        return g
+      }),
+    )
+    setLayers((prev) => prev.map((l) => (l.id === layerId ? next : l)))
+    writeBatch({ layers: [next], features: changed })
+  }, [])
+
+  const handleDeleteLayer = useCallback(
+    async (id: string) => {
+      const ids = subtreeIds(layersRef.current, id)
+      const featureIds = userFeaturesRef.current.filter((f) => ids.has(f.layerId)).map((f) => f.id)
+      await deleteLayersAndFeatures([...ids], featureIds)
+      const gone = new Set(featureIds)
+      setLayers((prev) => prev.filter((l) => !ids.has(l.id)))
+      setUserFeatures((prev) => prev.filter((f) => !gone.has(f.id)))
+      setEditingLayerId(null)
+      setEditingId((cur) => (cur && gone.has(cur) ? null : cur))
+      setNavTargetId((cur) => (cur && gone.has(cur) ? null : cur))
+    },
+    [],
+  )
 
   // ---- User features (pins, drawn lines/areas) ----
 
@@ -323,6 +430,8 @@ export default function App() {
       notes = '',
       opts: { label?: string; color?: string; layer?: string; times?: number[] } = {},
     ) => {
+      const layerId = ensureLayer(opts.layer ?? DEFAULT_LAYERS[kind])
+      const layer = layersRef.current.find((l) => l.id === layerId)
       const label = opts.label ?? { pin: 'Pin', line: 'Line', area: 'Area' }[kind]
       // Workshop naming convention (What_When_Where_Who) once a profile is set.
       let name: string
@@ -338,9 +447,11 @@ export default function App() {
         kind,
         name,
         notes,
-        color: opts.color ?? FEATURE_COLORS[0],
+        color: opts.color ?? layer?.style.color ?? DEFAULT_LAYER_COLOR,
         coordinates,
-        layer: opts.layer,
+        layerId,
+        ...(kind !== 'pin' && layer?.style.width !== undefined ? { width: layer.style.width } : {}),
+        ...(kind === 'pin' && layer?.style.symbol ? { symbol: layer.style.symbol } : {}),
         times: opts.times,
         createdAt: Date.now(),
         updatedAt: Date.now(),
@@ -350,7 +461,7 @@ export default function App() {
       setEditingId(feature.id)
       return feature
     },
-    [userFeatures],
+    [userFeatures, ensureLayer],
   )
 
   const handleDropPin = useCallback(
@@ -381,11 +492,13 @@ export default function App() {
         return
       }
       const stats = trackStats(track.points)
+      // A snapshot in the units chosen at save time (notes are the crew's text).
       const notes = [
         formatDistance(stats.distanceM),
         formatDuration(stats.durationMs),
-        `avg ${formatSpeed(stats.avgSpeedKmh)}`,
-        stats.elevGainM != null ? `+${Math.round(stats.elevGainM)} m gain` : null,
+        `avg ${formatSpeed(stats.avgSpeedKmh / 3.6)}`,
+        formatPace(stats.durationMs, stats.distanceM),
+        stats.elevGainM != null ? `+${formatAltitude(stats.elevGainM)} gain` : null,
         as === 'area' ? formatArea(ringAreaSqMeters(positions)) : null,
       ]
         .filter(Boolean)
@@ -450,57 +563,49 @@ export default function App() {
   }, [])
 
   const handleExport = useCallback(
-    async (format: ExportFormat, layer?: string) => {
-      const scoped = layer
-        ? userFeatures.filter((f) => featureLayer(f) === layer)
-        : userFeatures
-      if (!scoped.length) {
-        showToast('Nothing to export yet — drop a pin or draw something first', true)
-        return
-      }
-      const stamp = new Date().toISOString().slice(0, 10)
-      const slug = layer ? `-${layer.toLowerCase().replace(/[^a-z0-9]+/g, '-')}` : ''
-      const filename = `carmanah-maps${slug}-${stamp}.${format}`
-      const docName = layer ?? 'Carmanah Maps export'
-      let content: string | Blob
-      let mime: string
-      if (format === 'kmz') {
-        // Photos travel with the share.
-        const photosByFeature = new Map<string, Blob[]>()
-        for (const f of scoped) {
-          const stored = await listPhotos(f.id)
-          if (stored.length) photosByFeature.set(f.id, stored.map((p) => p.blob))
+    async (opts: ExportOptions) => {
+      setExporting(true)
+      try {
+        const chosen = new Set(opts.layerIds)
+        const scoped = userFeaturesRef.current.filter((f) => chosen.has(f.layerId))
+        const photos = new Map<string, Blob[]>()
+        if (opts.format === 'kmz' && opts.includePhotos) {
+          for (const f of scoped) {
+            const stored = await listPhotos(f.id)
+            if (stored.length) photos.set(f.id, stored.map((p) => p.blob))
+          }
         }
-        content = await featuresToKmz(scoped, photosByFeature, docName)
-        mime = 'application/vnd.google-earth.kmz'
-      } else if (format === 'kml') {
-        content = featuresToKml(scoped, docName)
-        mime = 'application/vnd.google-earth.kml+xml'
-      } else if (format === 'gpx') {
-        content = featuresToGpx(scoped)
-        mime = 'application/gpx+xml'
-      } else {
-        content = featuresToCsv(scoped)
-        mime = 'text/csv'
+        const file = await buildExport(
+          { layers: layersRef.current, features: userFeaturesRef.current, photos, symbolPng },
+          opts,
+        )
+        setExportLayerIds(null)
+        const how = await shareOrDownload(file.filename, file.mime, file.content)
+        showToast(how === 'shared' ? `Shared ${opts.docName}` : `Downloaded ${file.filename}`)
+      } catch (err) {
+        showToast(`Export failed: ${(err as Error).message}`, true)
+      } finally {
+        setExporting(false)
       }
-      const result = await shareOrDownload(filename, mime, content)
-      showToast(
-        result === 'shared'
-          ? `Shared ${layer ?? 'all data'}`
-          : `Downloaded ${filename}`,
-      )
     },
-    [userFeatures, showToast],
+    [showToast],
   )
 
-  const handleToggleLayer = useCallback((name: string) => {
-    setHiddenLayers((prev) => {
-      const next = new Set(prev)
-      if (next.has(name)) next.delete(name)
-      else next.add(name)
-      return next
-    })
-  }, [])
+  /** One-tap share of a layer (and its sublayers) as KMZ with photos. */
+  const handleShareLayer = useCallback(
+    (id: string) => {
+      const layer = layersRef.current.find((l) => l.id === id)
+      if (!layer) return
+      handleExport({
+        format: 'kmz',
+        layerIds: [...subtreeIds(layersRef.current, id)],
+        includePhotos: true,
+        tracksAsLines: false,
+        docName: layer.name,
+      })
+    },
+    [handleExport],
+  )
 
   const handleToggleGrid = useCallback(() => {
     setGridOn((prev) => {
@@ -537,7 +642,7 @@ export default function App() {
         <input
           ref={fileInputRef}
           type="file"
-          accept=".kml,.kmz,.gpx,.zip,.shp,.pdf"
+          accept=".kml,.kmz,.gpx,.zip,.shp,.csv,.geojson,.json,.pdf"
           multiple
           hidden
           onChange={(e) => {
@@ -549,7 +654,6 @@ export default function App() {
 
       <div className="map-container">
         <MapView
-          overlays={overlays}
           rasterOverlays={rasterOverlays}
           hiddenIds={hiddenIds}
           focusRequest={focusRequest}
@@ -559,7 +663,7 @@ export default function App() {
           liveFires={liveEnabled ? liveData : null}
           showLivePerimeters={livePerimeters}
           userFeatures={userFeatures}
-          hiddenLayers={hiddenLayers}
+          hiddenLayerIds={hiddenLayers}
           showGrid={gridOn}
           trackPoints={track.points.map((p) => p.position)}
           navLine={
@@ -567,10 +671,12 @@ export default function App() {
           }
           pinMode={pinMode}
           onDropPin={handleDropPin}
-          onEditFeature={setEditingId}
+          onEditFeature={(id) => {
+            setEditingLayerId(null)
+            setEditingId(id)
+          }}
           onNotify={showToast}
           onMapReady={setMainMap}
-          units={units}
           basemap={basemap}
           openSearchNonce={searchNonce}
         />
@@ -596,11 +702,9 @@ export default function App() {
           <div className="sheet-wrap">
             <div className="sheet-backdrop" onClick={() => setLayersOpen(false)} />
             <LayerPanel
-              overlays={overlays}
               rasterOverlays={rasterOverlays}
               hiddenIds={hiddenIds}
               onToggle={handleToggle}
-              onRemove={handleRemove}
               onRemoveRaster={handleRemoveRaster}
               onFocus={(id) => {
                 setLayersOpen(false)
@@ -621,18 +725,45 @@ export default function App() {
                 localStorage.setItem('carmanah-basemap', b)
               }}
               onClose={() => setLayersOpen(false)}
-              userFeatures={userFeatures}
-              hiddenLayers={hiddenLayers}
-              onToggleLayer={handleToggleLayer}
-              onEditFeature={(id) => {
-                setLayersOpen(false)
-                setEditingId(id)
-              }}
-              onFocusFeature={(id) => {
-                setLayersOpen(false)
-                focusOverlay(id)
-              }}
-              onExport={handleExport}
+              hasMyData={layers.length > 0}
+              myData={
+                layers.length > 0 && (
+                  <LayerTree
+                    layers={layers}
+                    features={userFeatures}
+                    hiddenLayerIds={hiddenLayers}
+                    onToggleLayer={handleToggleLayer}
+                    onEditLayer={(id) => {
+                      setLayersOpen(false)
+                      setEditingId(null)
+                      setEditingLayerId(id)
+                    }}
+                    onShareLayer={handleShareLayer}
+                    onFocusLayer={(id) => {
+                      setLayersOpen(false)
+                      focusLayer(id)
+                    }}
+                    onEditFeature={(id) => {
+                      setLayersOpen(false)
+                      setEditingLayerId(null)
+                      setEditingId(id)
+                    }}
+                    onFocusFeature={(id) => {
+                      setLayersOpen(false)
+                      focusOverlay(id)
+                    }}
+                    onNewLayer={() => {
+                      setLayersOpen(false)
+                      setEditingId(null)
+                      handleNewLayer()
+                    }}
+                    onExport={() => {
+                      setLayersOpen(false)
+                      setExportLayerIds(layers.filter((l) => !hiddenLayers.has(l.id)).map((l) => l.id))
+                    }}
+                  />
+                )
+              }
             />
           </div>
         )}
@@ -689,7 +820,7 @@ export default function App() {
                   },
                   {
                     icon: '📂',
-                    label: 'Import KML, GPX, shapefile, or GeoPDF',
+                    label: 'Import KML/KMZ, GPX, CSV, shapefile or GeoPDF',
                     action: () => fileInputRef.current?.click(),
                   },
                   {
@@ -745,8 +876,11 @@ export default function App() {
               <span className="readout">
                 {track.phase === 'recording' && <span className="rec-dot" />}
                 {formatDistance(stats.distanceM)} · {formatDuration(stats.durationMs)}
-                {stats.avgSpeedKmh > 0 && ` · ${formatSpeed(stats.avgSpeedKmh)}`}
-                {stats.elevGainM != null && ` · +${Math.round(stats.elevGainM)} m`}
+                {stats.avgSpeedKmh > 0 && ` · ${formatSpeed(stats.avgSpeedKmh / 3.6)}`}
+                {track.phase === 'review' &&
+                  formatPace(stats.durationMs, stats.distanceM) &&
+                  ` · ${formatPace(stats.durationMs, stats.distanceM)}`}
+                {stats.elevGainM != null && ` · +${formatAltitude(stats.elevGainM)}`}
               </span>
               {track.phase === 'recording' && (
                 <button className="btn" onClick={track.stop}>
@@ -780,7 +914,8 @@ export default function App() {
           return feature ? (
             <FeatureSheet
               feature={feature}
-              layerNames={[...new Set(userFeatures.map(featureLayer))]}
+              layers={layers}
+              onEnsureLayer={ensureLayer}
               photos={photos}
               onAddPhotos={handleAddPhotos}
               onDeletePhoto={handleDeletePhoto}
@@ -794,6 +929,35 @@ export default function App() {
             />
           ) : null
         })()}
+
+      {editingLayerId &&
+        (() => {
+          const layer = layers.find((l) => l.id === editingLayerId)
+          if (!layer) return null
+          const ids = subtreeIds(layers, layer.id)
+          return (
+            <LayerSheet
+              layer={layer}
+              layers={layers}
+              featureCount={userFeatures.filter((f) => ids.has(f.layerId)).length}
+              onChange={handleLayerChange}
+              onRenameField={handleRenameField}
+              onDelete={handleDeleteLayer}
+              onClose={() => setEditingLayerId(null)}
+            />
+          )
+        })()}
+
+      {exportLayerIds && (
+        <ExportSheet
+          layers={layers}
+          features={userFeatures}
+          initialLayerIds={exportLayerIds}
+          busy={exporting}
+          onExport={handleExport}
+          onClose={() => setExportLayerIds(null)}
+        />
+      )}
 
       {pinMode && (
         <div className="pin-chip">
@@ -818,8 +982,9 @@ export default function App() {
             {nav.distanceM != null ? (
               <>
                 {' · '}
-                {formatDistance(nav.distanceM)} · {Math.round(nav.bearing ?? 0)}°T
+                {formatDistance(nav.distanceM)} · {formatBearing(nav.bearing ?? 0, nav.position)}
                 {nav.etaS != null && ` · ETA ${formatDuration(nav.etaS * 1000)}`}
+                {nav.speedMps != null && ` · ${formatSpeed(nav.speedMps)}`}
               </>
             ) : (
               ' · waiting for GPS…'
@@ -835,60 +1000,44 @@ export default function App() {
         <div className="feature-sheet settings-sheet">
           <div className="sheet-header">
             <span className="kind-icon">⚙</span>
-            <span className="sheet-title">Profile</span>
+            <span className="sheet-title">Profile and settings</span>
             <button className="btn" onClick={() => setSettingsOpen(false)}>
               Done
             </button>
           </div>
-          <div className="settings-fields">
-            <label>
-              Callsign
-              <input
-                value={profile.callsign}
-                placeholder="e.g. 2P14"
-                onChange={(e) => {
-                  const next = { ...profile, callsign: e.target.value.trim() }
-                  setProfile(next)
-                  saveProfile(next)
-                }}
-              />
-            </label>
-            <label>
-              Fire number
-              <input
-                value={profile.fireNumber}
-                placeholder="e.g. K61067"
-                onChange={(e) => {
-                  const next = { ...profile, fireNumber: e.target.value.trim() }
-                  setProfile(next)
-                  saveProfile(next)
-                }}
-              />
-            </label>
-          </div>
-          <div className="settings-fields">
-            <label>
-              Units
-              <span className="units-toggle">
-                {(['metric', 'imperial'] as const).map((u) => (
-                  <button
-                    key={u}
-                    className={`btn small${units === u ? ' active' : ''}`}
-                    onClick={() => {
-                      setUnits(u)
-                      setUnitsState(u)
-                    }}
-                  >
-                    {u === 'metric' ? 'Metric (m · km · ha)' : 'Imperial (ft · mi · ac)'}
-                  </button>
-                ))}
-              </span>
-            </label>
-          </div>
-          <div className="settings-hint">
-            {conventionActive()
-              ? `New features will be auto-named like: ${buildConventionName('Edge')}`
-              : 'Set a callsign and/or fire number to auto-name features the BCWS way (What_When_Where_Who).'}
+          <div className="sheet-scroll">
+            <div className="settings-fields">
+              <label>
+                Callsign
+                <input
+                  value={profile.callsign}
+                  placeholder="e.g. 2P14"
+                  onChange={(e) => {
+                    const next = { ...profile, callsign: e.target.value.trim() }
+                    setProfile(next)
+                    saveProfile(next)
+                  }}
+                />
+              </label>
+              <label>
+                Fire number
+                <input
+                  value={profile.fireNumber}
+                  placeholder="e.g. K61067"
+                  onChange={(e) => {
+                    const next = { ...profile, fireNumber: e.target.value.trim() }
+                    setProfile(next)
+                    saveProfile(next)
+                  }}
+                />
+              </label>
+            </div>
+            <div className="settings-hint">
+              {conventionActive()
+                ? `New features will be auto-named like: ${buildConventionName('Edge')}`
+                : 'Set a callsign and/or fire number to auto-name features the BCWS way (What_When_Where_Who).'}
+            </div>
+            <UnitsSettings />
           </div>
         </div>
       )}
