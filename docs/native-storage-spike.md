@@ -296,11 +296,10 @@ Nothing here needs a crew-app change before the maps PR. For that PR:
    are map data, not personal data.
 3. **`/capacitor.js` in `maps/index.html`:** already in the contract, and
    required: `convertFileSrc` and Filesystem come from `window.Capacitor`.
-4. **CSP:** the crew app sets none today (Helmet's CSP is off, and the app
-   has none). If one is ever added to the maps page, it must allow
+4. **CSP:** if the maps page ever gets a CSP, it must allow
    `connect-src capacitor://localhost` (iOS) and `https://localhost`
    (Android), `worker-src blob:` and `img-src blob: data:`.
-5. **Account deletion** (`_removePersonFromPhone`): recursive
+5. **Account deletion** (the crew app's account-removal step): recursive
    `Filesystem.rmdir` of `maps/<ownerId>` in `Directory.LibraryNoCloud`, and
    drop IndexedDB `carmanah-maps.<ownerId>`. Packs in `maps/_packs/` are
    shared and stay. Run it asynchronously: big folders take about a second
@@ -312,9 +311,9 @@ Nothing here needs a crew-app change before the maps PR. For that PR:
 7. **Optional:** `@capacitor/device` (8.0.3) `getInfo().realDiskFree`, to
    warn before a large download. Filesystem can't report free space.
    Without it, handle the write failure.
-8. **Android:** `allowBackup="false"` is already set, so packs aren't backed
-   up. `LibraryNoCloud` maps to the app's files folder. See the follow-ups
-   below.
+8. **Android:** `LibraryNoCloud` maps to the app's files folder. If Android
+   backup is ever enabled, exclude `maps/_packs/` from it: packs can be
+   downloaded again. See the follow-ups below.
 
 ## 7. Limits of this spike and follow-ups
 
