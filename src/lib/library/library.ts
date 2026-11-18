@@ -77,7 +77,7 @@ export class MapsLibrary {
     if (!map) return
     await db.delete('maps', id)
     if (map.raster.kind === 'legacy') await deleteRaster(map.raster.rasterId)
-    else await this.files.removeDir(`library/maps/${map.id}`)
+    else await this.files.removeDir(map.raster.path.slice(0, map.raster.path.lastIndexOf('/')))
     if (map.originalPath && !(await this.list()).some((m) => m.originalPath === map.originalPath)) {
       await this.files.remove(map.originalPath)
     }

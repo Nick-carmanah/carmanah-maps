@@ -837,7 +837,7 @@ function showBasemap(map: MlMap, basemap: 'streets' | 'satellite') {
  * the base style ('grid-lines' if present). Only visible maps are on the map
  * at all, so dozens of saved maps cost nothing until shown. */
 function syncMapLayers(map: MlMap, layers: MapLayer[]) {
-  const shown = layers.filter((l) => l.visible && l.imageUrl)
+  const shown = layers.filter((l) => l.visible && (l.tiles || l.imageUrl))
   const wanted = new Set(shown.map((l) => `raster-${l.id}`))
   for (const layer of map.getStyle().layers ?? []) {
     if (layer.id.startsWith('raster-') && !wanted.has(layer.id)) {
@@ -850,14 +850,31 @@ function syncMapLayers(map: MlMap, layers: MapLayer[]) {
   let above = map.getLayer('grid-lines') ? 'grid-lines' : undefined
   for (const l of [...shown].reverse()) {
     const id = `raster-${l.id}`
+    // A map re-drawn as tiles (Sharpen) swaps its image source for a tile source.
+    if (map.getSource(id) && map.getSource(id)!.type !== (l.tiles ? 'raster' : 'image')) {
+      map.removeLayer(id)
+      map.removeSource(id)
+    }
     if (!map.getSource(id)) {
-      const coordinates = l.corners.map(([lng, lat]) => [lng, lat]) as [
-        [number, number],
-        [number, number],
-        [number, number],
-        [number, number],
-      ]
-      map.addSource(id, { type: 'image', url: l.imageUrl!, coordinates })
+      if (l.tiles) {
+        // Sharp tiles (PMTiles in the phone's storage, see tile-protocol.ts).
+        map.addSource(id, {
+          type: 'raster',
+          tiles: [l.tiles.url],
+          tileSize: 512,
+          minzoom: l.tiles.minzoom,
+          maxzoom: l.tiles.maxzoom,
+          bounds: l.tiles.bounds,
+        })
+      } else {
+        const coordinates = l.corners.map(([lng, lat]) => [lng, lat]) as [
+          [number, number],
+          [number, number],
+          [number, number],
+          [number, number],
+        ]
+        map.addSource(id, { type: 'image', url: l.imageUrl!, coordinates })
+      }
       map.addLayer(
         {
           id,

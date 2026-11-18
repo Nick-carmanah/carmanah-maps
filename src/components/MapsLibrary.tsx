@@ -18,6 +18,8 @@ interface MapsLibraryProps {
   onZoomTo: (id: string) => void
   readOriginal: (map: LibraryMap) => Promise<File | null>
   onShare: (file: File) => void
+  /** Re-draw an older single-image map as sharp tiles from its original. */
+  onSharpen: (map: LibraryMap) => void
 }
 
 const folderLabel = (folder: string) => folder || UNSORTED
@@ -34,6 +36,7 @@ export default function MapsLibrary({
   onZoomTo,
   readOriginal,
   onShare,
+  onSharpen,
 }: MapsLibraryProps) {
   const [filter, setFilter] = useState('')
   const [openId, setOpenId] = useState<string | null>(null)
@@ -141,6 +144,7 @@ export default function MapsLibrary({
                 onZoomTo={onZoomTo}
                 readOriginal={readOriginal}
                 onShare={onShare}
+                onSharpen={onSharpen}
               />
             ))}
         </section>
@@ -198,6 +202,7 @@ interface MapRowProps {
   onZoomTo: (id: string) => void
   readOriginal: (map: LibraryMap) => Promise<File | null>
   onShare: (file: File) => void
+  onSharpen: (map: LibraryMap) => void
 }
 
 type Panel = 'actions' | 'info' | 'rename' | 'move'
@@ -213,6 +218,7 @@ const MapRow = memo(function MapRow({
   onZoomTo,
   readOriginal,
   onShare,
+  onSharpen,
 }: MapRowProps) {
   const [panel, setPanel] = useState<Panel>('actions')
   const [original, setOriginal] = useState<File | null | 'loading'>(null)
@@ -256,6 +262,7 @@ const MapRow = memo(function MapRow({
             {map.source && map.source.pageCount > 1 && ` · p${map.source.pageIndex + 1}`}
           </span>
           {legacy && <span className="map-legacy">Re-import to share or sharpen</span>}
+          {!legacy && map.raster.kind === 'image' && <span className="map-legacy">Blurry up close · tap Sharpen</span>}
         </button>
         <label className="map-visible" title={map.visible ? 'Hide map' : 'Show map'}>
           <input
@@ -302,6 +309,11 @@ const MapRow = memo(function MapRow({
               >
                 {original === 'loading' ? 'Preparing…' : 'Share original'}
               </button>
+              {map.raster.kind === 'image' && canShare && (
+                <button className="btn small primary" onClick={() => onSharpen(map)}>
+                  Sharpen
+                </button>
+              )}
               <button className="btn small" onClick={() => setPanel('info')}>
                 Info
               </button>
@@ -472,7 +484,14 @@ function MapInfo({ map, onBack }: { map: LibraryMap; onBack: () => void }) {
   if (scale) rows.push(['Scale', scale])
   rows.push(['Folder', folderLabel(map.folder)])
   rows.push(['Added', new Date(map.addedAt).toLocaleString()])
-  if (map.raster.kind === 'image') rows.push(['Drawn at', `${map.raster.width} × ${map.raster.height} px`])
+  if (map.raster.kind === 'tiles') {
+    rows.push([
+      'Detail',
+      `≈ ${map.raster.dpi} DPI · zoom ${map.raster.minzoom}–${map.raster.maxzoom} · ${map.raster.tileCount} tiles`,
+    ])
+  } else if (map.raster.kind === 'image') {
+    rows.push(['Drawn at', `${map.raster.width} × ${map.raster.height} px (one image; Sharpen for detail)`])
+  }
   rows.push(['Stored', formatBytes(map.storedBytes) + (s ? ' (plus the original)' : '')])
   const labels = ['Top left', 'Top right', 'Bottom right', 'Bottom left']
   map.corners.forEach((c, i) => rows.push([labels[i], fmtCorner(c)]))

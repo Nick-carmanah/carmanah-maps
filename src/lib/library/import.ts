@@ -1,13 +1,15 @@
 import {
   openGeoPdf,
+  type GeoPdfSession,
   parseGeoPdfRegions,
   readGeoPdfInfo,
   regionProjection,
   type GeoPdfInfo,
   type GeoPdfRegion,
 } from '../geopdf'
-import { DEFAULT_OPACITY, THUMB_PX, type MapsLibrary } from './library'
-import type { LibraryMap } from './types'
+import { DEFAULT_OPACITY, type MapsLibrary } from './library'
+import type { TileProgress } from './tiles'
+import type { Corners, LibraryMap, MapRaster } from './types'
 
 /** What the page picker shows when a file holds more than one map. */
 export interface PagePickRequest {
@@ -50,6 +52,51 @@ export interface ImportResult {
 
 function checkAbort(signal?: AbortSignal) {
   if (signal?.aborted) throw new DOMException('Import cancelled', 'AbortError')
+}
+
+const cornersOf = (region: GeoPdfRegion): Corners => [
+  region.corners.topLeft,
+  region.corners.topRight,
+  region.corners.bottomRight,
+  region.corners.bottomLeft,
+]
+
+/**
+ * Draw one map frame as tiles and store them as `library/maps/<id>/map.pmtiles`.
+ * On failure or cancel nothing is left behind.
+ */
+async function renderAndStore(
+  library: MapsLibrary,
+  session: GeoPdfSession,
+  region: GeoPdfRegion,
+  id: string,
+  opts: { signal?: AbortSignal; onProgress?: (p: TileProgress) => void },
+): Promise<{ raster: MapRaster; storedBytes: number; thumb: Blob; drawErrors: string[] }> {
+  // Loaded on first import, like pdf.js (and precached for offline the same way).
+  const { renderTilePyramid } = await import('./tiles')
+  const pyramid = await renderTilePyramid(session, region, cornersOf(region), opts)
+  const path = `library/maps/${id}/map.pmtiles`
+  try {
+    if (opts.signal?.aborted) throw new DOMException('Import cancelled', 'AbortError')
+    const storedBytes = await library.files.write(path, pyramid.parts)
+    return {
+      raster: {
+        kind: 'tiles',
+        path,
+        minzoom: pyramid.minzoom,
+        maxzoom: pyramid.maxzoom,
+        bounds: pyramid.bounds,
+        tileCount: pyramid.tileCount,
+        dpi: pyramid.dpi,
+      },
+      storedBytes,
+      thumb: pyramid.thumb,
+      drawErrors: pyramid.drawErrors,
+    }
+  } catch (err) {
+    await library.files.removeDir(`library/maps/${id}`).catch(() => {})
+    throw err
+  }
 }
 
 /** "Fire map p2", or "Fire map p2-1" when that page has several frames. */
@@ -109,30 +156,24 @@ export async function importGeoPdf(
     for (const [i, region] of chosen.entries()) {
       checkAbort(signal)
       const name = mapName(base, region, regions)
-      onProgress?.({
-        label: chosen.length > 1 ? `Drawing map ${i + 1} of ${chosen.length}` : 'Drawing the map',
-        fraction: i / chosen.length,
-      })
+      const step = chosen.length > 1 ? `Map ${i + 1} of ${chosen.length}: ` : ''
       try {
-        const rendered = await session.renderRegion(region, { thumbnailPx: THUMB_PX })
         const id = crypto.randomUUID()
-        const path = `library/maps/${id}/image.png`
-        const storedBytes = await library.files.write(path, [rendered.blob])
+        const stored = await renderAndStore(library, session, region, id, {
+          signal,
+          onProgress: (p) =>
+            onProgress?.({ label: `${step}${p.label}`, fraction: (i + p.fraction) / chosen.length }),
+        })
         const onPage = regions.filter((r) => r.pageIndex === region.pageIndex)
         const map: LibraryMap = {
           id,
           name,
           folder: opts.folder,
           addedAt: Date.now(),
-          corners: [
-            region.corners.topLeft,
-            region.corners.topRight,
-            region.corners.bottomRight,
-            region.corners.bottomLeft,
-          ],
+          corners: cornersOf(region),
           visible: true,
           opacity: DEFAULT_OPACITY,
-          raster: { kind: 'image', path, width: rendered.width, height: rendered.height },
+          raster: stored.raster,
           originalPath,
           source: {
             fileName: file.name,
@@ -145,13 +186,13 @@ export async function importGeoPdf(
             bboxPt: region.bboxPt,
             projection: regionProjection(info, region),
           },
-          thumb: rendered.thumb,
-          storedBytes,
-          drawErrors: rendered.drawErrors.length ? rendered.drawErrors : undefined,
+          thumb: stored.thumb,
+          storedBytes: stored.storedBytes,
+          drawErrors: stored.drawErrors.length ? stored.drawErrors : undefined,
         }
         await library.put(map)
         result.maps.push(map)
-        rendered.drawErrors.forEach((e) => drawErrors.add(e))
+        stored.drawErrors.forEach((e) => drawErrors.add(e))
       } catch (err) {
         if ((err as DOMException).name === 'AbortError') throw err
         result.failed.push({ name, error: (err as Error).message })
@@ -174,5 +215,44 @@ export async function importGeoPdf(
   } finally {
     await session.close().catch(() => {})
     if (originalSaved && !result.maps.length) await library.files.remove(originalPath).catch(() => {})
+  }
+}
+
+/**
+ * Re-draw a map from its kept original as sharp tiles (for maps imported
+ * before tiles, which are one 2,200 px image). Returns the updated record.
+ */
+export async function sharpenMap(
+  library: MapsLibrary,
+  map: LibraryMap,
+  opts: { signal?: AbortSignal; onProgress?: (p: ImportProgress) => void } = {},
+): Promise<LibraryMap> {
+  const original = await library.readOriginal(map)
+  if (!original || !map.source) throw new Error("this map's original file isn't on this device")
+  const bytes = new Uint8Array(await original.arrayBuffer())
+  const source = map.source
+  const region = (await parseGeoPdfRegions(bytes)).find(
+    (r) => r.pageIndex === source.pageIndex && r.bboxPt.every((v, i) => Math.abs(v - source.bboxPt[i]) < 1e-6),
+  )
+  if (!region) throw new Error("couldn't find this map in its original file")
+  const session = await openGeoPdf(bytes)
+  try {
+    const old = map.raster
+    // A fresh folder name, so the old image stays usable until the new tiles are saved.
+    const stored = await renderAndStore(library, session, region, `${map.id}-t`, opts)
+    const next = await library.update(map.id, {
+      raster: stored.raster,
+      corners: cornersOf(region),
+      storedBytes: stored.storedBytes,
+      thumb: stored.thumb,
+      drawErrors: stored.drawErrors.length ? stored.drawErrors : undefined,
+    })
+    if (old.kind === 'image') {
+      await library.files.removeDir(old.path.slice(0, old.path.lastIndexOf('/'))).catch(() => {})
+    }
+    if (!next) throw new Error('the map was deleted')
+    return next
+  } finally {
+    await session.close().catch(() => {})
   }
 }
