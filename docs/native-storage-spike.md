@@ -240,6 +240,14 @@ app.
 
 ### Pack format
 
+The spike used the same data as the website's vector offline packs on
+`main` (`src/lib/mappacks.ts`): OpenFreeMap planet `.pbf` vector tiles, the
+Liberty fonts and `ofm_f384` sprites, and terrarium terrain. Its 6 glyph
+ranges are a superset of `main`'s 4. The website's cache keys drop the
+weekly planet build version; a native pack records it in `pack.json` instead,
+so a pack is known to be one consistent build. `main`'s paint recolouring
+doesn't touch storage, so a native pack can serve it as-is.
+
 PMTiles v3, clustered, one file per source. Vector tiles gzipped; terrain as
 terrarium PNG; imported raster maps (Phase A1) as WebP or PNG pyramids in
 their own `.pmtiles`. Keep each file under 2 GB: Capacitor's Android server
