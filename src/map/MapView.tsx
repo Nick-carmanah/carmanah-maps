@@ -25,6 +25,7 @@ import {
 } from '../lib/features'
 import { ICON_PREFIX } from '../lib/symbols'
 import { fenceShapes } from '../lib/fences'
+import { splitSegments } from '../lib/track'
 import { buildGrid, gridSystemFor } from '../lib/grid'
 import { NWCG_SYMBOLS, nwcgIconUrl } from '../lib/nwcg'
 import { COORD_FORMATS, FORMAT_LABELS, formatCoord, parseCoordinate } from '../lib/coords'
@@ -57,6 +58,9 @@ interface MapViewProps {
   showGrid: boolean
   /** Live GPS track being recorded (empty when not recording). */
   trackPoints: Position[]
+  /** Where the live track resumed after a pause (indexes into trackPoints):
+   * a gap is left there, not a straight line. */
+  trackBreaks?: number[]
   /** Guidance line from current position to nav target, or null. */
   navLine: [Position, Position] | null
   /** When true, the next map tap drops a pin. */
@@ -83,6 +87,7 @@ export default function MapView({
   hiddenLayerIds,
   showGrid,
   trackPoints,
+  trackBreaks,
   navLine,
   pinMode,
   onDropPin,
@@ -495,16 +500,17 @@ export default function MapView({
     const map = mapRef.current
     if (!map || !loadedRef.current) return
     const source = map.getSource('track') as maplibregl.GeoJSONSource | undefined
+    const parts = splitSegments(trackPoints, trackBreaks).filter((p) => p.length >= 2)
     source?.setData(
-      trackPoints.length >= 2
+      parts.length
         ? {
             type: 'Feature',
             properties: {},
-            geometry: { type: 'LineString', coordinates: trackPoints },
+            geometry: { type: 'MultiLineString', coordinates: parts },
           }
         : EMPTY_FC,
     )
-  }, [trackPoints])
+  }, [trackPoints, trackBreaks])
 
   // Push the navigation guidance line to the map.
   useEffect(() => {

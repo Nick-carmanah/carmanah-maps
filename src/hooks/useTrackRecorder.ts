@@ -1,75 +1,39 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { Position } from 'geojson'
-import { haversineMeters, pathLengthMeters } from '../lib/measure'
+import { subscribeFix } from '../lib/position'
+import {
+  appendFix,
+  finishTrack,
+  markPause,
+  type TrackPoint,
+} from '../lib/track'
 
-export interface TrackPoint {
-  position: Position
-  time: number
-  altitude: number | null
-}
+// The maths lives in lib/track.ts; re-exported for existing imports.
+export { formatDuration, trackSegmentStarts, trackStats } from '../lib/track'
+export type { TrackPoint, TrackStats } from '../lib/track'
 
-export type TrackPhase = 'idle' | 'recording' | 'review'
+export type TrackPhase = 'idle' | 'recording' | 'paused' | 'review'
 
-export interface TrackStats {
-  distanceM: number
-  durationMs: number
-  avgSpeedKmh: number
-  elevGainM: number | null
-}
-
-/** Ignore GPS jitter below this distance between fixes. */
-const MIN_MOVE_M = 3
-
-export function trackStats(points: TrackPoint[]): TrackStats {
-  const positions = points.map((p) => p.position)
-  const distanceM = pathLengthMeters(positions)
-  const durationMs = points.length >= 2 ? points[points.length - 1].time - points[0].time : 0
-  const hours = durationMs / 3600000
-  let elevGainM: number | null = null
-  for (let i = 1; i < points.length; i++) {
-    const a = points[i - 1].altitude
-    const b = points[i].altitude
-    if (a != null && b != null) {
-      elevGainM = (elevGainM ?? 0) + Math.max(0, b - a)
-    }
-  }
-  return {
-    distanceM,
-    durationMs,
-    avgSpeedKmh: hours > 0 ? distanceM / 1000 / hours : 0,
-    elevGainM,
-  }
-}
-
-export function formatDuration(ms: number): string {
-  const totalSec = Math.floor(ms / 1000)
-  const h = Math.floor(totalSec / 3600)
-  const m = Math.floor((totalSec % 3600) / 60)
-  const s = totalSec % 60
-  return h > 0
-    ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
-    : `${m}:${String(s).padStart(2, '0')}`
-}
-
+/**
+ * GPS track recording with pause/resume. A pause stops listening to GPS and
+ * leaves a gap: the fix after resuming starts a new segment instead of
+ * joining the last one with a straight line (see lib/track.ts).
+ */
 export function useTrackRecorder(onNotify: (message: string, isError?: boolean) => void) {
   const [phase, setPhase] = useState<TrackPhase>('idle')
   const [points, setPoints] = useState<TrackPoint[]>([])
-  const watchIdRef = useRef<number | null>(null)
+  const pointsRef = useRef(points)
+  pointsRef.current = points
+  const phaseRef = useRef(phase)
+  phaseRef.current = phase
+  const onNotifyRef = useRef(onNotify)
+  onNotifyRef.current = onNotify
+  const unsubscribeRef = useRef<(() => void) | null>(null)
   const wakeLockRef = useRef<{ release(): Promise<void> } | null>(null)
   // Re-render every second while recording so the duration display ticks.
   const [, setTick] = useState(0)
 
   const addPoint = useCallback((lng: number, lat: number, altitude: number | null = null) => {
-    setPoints((prev) => {
-      const position: Position = [lng, lat]
-      if (
-        prev.length &&
-        haversineMeters(prev[prev.length - 1].position, position) < MIN_MOVE_M
-      ) {
-        return prev
-      }
-      return [...prev, { position, time: Date.now(), altitude }]
-    })
+    setPoints((prev) => appendFix(prev, [lng, lat], Date.now(), altitude))
   }, [])
 
   useEffect(() => {
@@ -79,36 +43,27 @@ export function useTrackRecorder(onNotify: (message: string, isError?: boolean) 
   }, [phase])
 
   // Dev-only: feed synthetic GPS fixes from the console for desktop testing.
+  // (window.__posFeed in lib/position.ts drives this and every other GPS tool.)
   useEffect(() => {
     if (!import.meta.env.DEV) return
-    ;(window as unknown as Record<string, unknown>).__trackFeed = addPoint
+    ;(window as unknown as Record<string, unknown>).__trackFeed = (
+      lng: number,
+      lat: number,
+      altitude: number | null = null,
+    ) => {
+      if (phaseRef.current === 'recording') addPoint(lng, lat, altitude)
+    }
     return () => {
       delete (window as unknown as Record<string, unknown>).__trackFeed
     }
   }, [addPoint])
 
-  const stopWatching = useCallback(() => {
-    if (watchIdRef.current !== null) {
-      navigator.geolocation?.clearWatch(watchIdRef.current)
-      watchIdRef.current = null
-    }
-    wakeLockRef.current?.release().catch(() => {})
-    wakeLockRef.current = null
-  }, [])
-
-  const start = useCallback(() => {
-    setPoints([])
-    setPhase('recording')
-    if (navigator.geolocation) {
-      watchIdRef.current = navigator.geolocation.watchPosition(
-        (pos) =>
-          addPoint(pos.coords.longitude, pos.coords.latitude, pos.coords.altitude),
-        (err) => onNotify(`GPS: ${err.message}`, true),
-        { enableHighAccuracy: true, maximumAge: 0 },
-      )
-    } else {
-      onNotify('GPS not available on this device', true)
-    }
+  const listen = useCallback(() => {
+    unsubscribeRef.current?.()
+    unsubscribeRef.current = subscribeFix(
+      (fix) => addPoint(fix.lng, fix.lat, fix.altitude),
+      (message) => onNotifyRef.current(`GPS: ${message}`, true),
+    )
     // Keep the screen awake while recording (best-effort).
     navigator.wakeLock?.request('screen').then(
       (lock) => {
@@ -116,28 +71,54 @@ export function useTrackRecorder(onNotify: (message: string, isError?: boolean) 
       },
       () => {},
     )
-  }, [addPoint, onNotify])
+  }, [addPoint])
+
+  const stopListening = useCallback(() => {
+    unsubscribeRef.current?.()
+    unsubscribeRef.current = null
+    wakeLockRef.current?.release().catch(() => {})
+    wakeLockRef.current = null
+  }, [])
+
+  const start = useCallback(() => {
+    setPoints([])
+    setPhase('recording')
+    listen()
+  }, [listen])
+
+  const pause = useCallback(() => {
+    if (phaseRef.current !== 'recording') return
+    stopListening()
+    setPoints(markPause)
+    setPhase('paused')
+  }, [stopListening])
+
+  const resume = useCallback(() => {
+    if (phaseRef.current !== 'paused') return
+    setPhase('recording')
+    listen()
+  }, [listen])
 
   const stop = useCallback(() => {
-    stopWatching()
-    setPoints((prev) => {
-      if (prev.length < 2) {
-        onNotify('Track too short to save', true)
-        setPhase('idle')
-        return []
-      }
-      setPhase('review')
-      return prev
-    })
-  }, [stopWatching, onNotify])
+    stopListening()
+    const kept = finishTrack(pointsRef.current)
+    if (kept.length < 2) {
+      onNotifyRef.current('Track too short to save', true)
+      setPhase('idle')
+      setPoints([])
+      return
+    }
+    setPoints(kept)
+    setPhase('review')
+  }, [stopListening])
 
   const discard = useCallback(() => {
-    stopWatching()
+    stopListening()
     setPhase('idle')
     setPoints([])
-  }, [stopWatching])
+  }, [stopListening])
 
-  useEffect(() => stopWatching, [stopWatching])
+  useEffect(() => stopListening, [stopListening])
 
-  return { phase, points, start, stop, discard }
+  return { phase, points, start, pause, resume, stop, discard }
 }

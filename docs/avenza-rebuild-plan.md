@@ -109,9 +109,9 @@ needs the Capacitor wrap.
 | Drag to reposition, edit coordinates, fetch elevation | ⬜ | yes | Elevation from our terrain tiles |
 | Lines, areas, circles; crosshair vertex placement | 🟡 | yes | |
 | Draw by course and distance | ⬜ | yes | Also covers the workshop's "shoot a bearing, draw the line" |
-| GPS tracks with pause/resume | 🟡 | partly | No pause yet. Background recording = Native |
-| Plot photos (geotagged → placemarks) | ⬜ | yes | EXIF GPS; Avenza files these into a "Photo Library" layer |
-| Plot GPS average (manual / timer / fix count) | ⬜ | yes | Pro feature in Avenza |
+| GPS tracks with pause/resume | ✅ | partly | Pause leaves a gap. Background recording = Native |
+| Plot photos (geotagged → placemarks) | ✅ | yes | EXIF GPS, time, direction; "Photo Library" layer |
+| Plot GPS average (manual / timer / fix count) | ✅ | yes | Pro feature in Avenza |
 | Layer tree: sublayers, active layer, lock, default style | ⬜ | yes | Core of Nick's master/day/specialty layer workflow |
 | Move features between layers | ⬜ | yes | |
 | Typed attribute schema per layer (string, boolean, real, integer, picklists) | 🟡 | yes | |
@@ -137,7 +137,7 @@ needs the Capacitor wrap.
 
 | Avenza | Us | PWA? | Notes |
 |---|---|---|---|
-| GPS info panel: speed, altitude, accuracy | 🟡 | yes | |
+| GPS info panel: speed, altitude, accuracy | ✅ | yes | Tools → GPS info |
 | Compass heading, course-up, lock orientation, true/magnetic | ⬜ | yes | DeviceOrientation API (iOS asks permission once) |
 | Navigate to feature / along track / to coordinates / project destination / routes | 🟡 | yes | Point only today |
 | Navigation settings: visit each point in turn, arrival radius | ⬜ | yes | |
