@@ -24,6 +24,7 @@ import {
   shareMapFile,
   type AreaMap,
 } from '../lib/send-area'
+import { formatDistance } from '../lib/units'
 
 /**
  * "Send this area as a map": a viewfinder box over the map in the page's
@@ -113,8 +114,13 @@ export default function SendAreaSheet({ map, layers, basemap, onClose, onNotify 
 
   // The area under the box, at the zoom that fills the page's frame with it.
   const updateArea = useCallback(() => {
-    if (!map || box.w <= 0) return
+    if (!map) return
     const container = map.getContainer()
+    // No room to frame anything (map hidden or not laid out yet): wait.
+    if (container.clientWidth < 80 || region.h < BOX_TOP + 2 * BOX_MARGIN + 40) {
+      setArea(null)
+      return
+    }
     const zoom = map.getZoom()
     const c = map.getCenter()
     const [mx, my] = lngLatToWorld([c.lng, c.lat], zoom)
@@ -124,7 +130,7 @@ export default function SendAreaSheet({ map, layers, basemap, onClose, onNotify 
       zoom,
     )
     setArea(areaAt(centre, zoom + Math.log2(layout.framePx.w / box.w), layout.framePx))
-  }, [map, box, layout])
+  }, [map, box, layout, region])
 
   useEffect(() => {
     if (!map) return
@@ -322,7 +328,7 @@ export default function SendAreaSheet({ map, layers, basemap, onClose, onNotify 
             {basemap === 'satellite' && <div className="settings-hint send-area-warn">{SATELLITE_NOTE}</div>}
             <div className="settings-hint">
               {scale && ground
-                ? `1:${roundScale(scale).toLocaleString('en-US')} · ${formatGround(ground.w)} × ${formatGround(ground.h)}`
+                ? `1:${roundScale(scale).toLocaleString('en-US')} · ${formatDistance(ground.w)} × ${formatDistance(ground.h)}`
                 : 'Waiting for the map…'}
               {tileNote && <span className={tileNote.warn ? 'send-area-warn' : undefined}> · {tileNote.text}</span>}
             </div>
@@ -393,10 +399,6 @@ function tileStatus(t: TileCheck | null): { text: string; warn: boolean; block?:
     return { text: t.coarser ? 'offline: parts drawn from less detailed saved tiles' : 'offline: this area is saved', warn: false }
   }
   return t.notSaved > 0 ? { text: `${t.notSaved} map tiles will download`, warn: false } : null
-}
-
-function formatGround(m: number): string {
-  return m >= 1000 ? `${(m / 1000).toFixed(m >= 10000 ? 0 : 1)} km` : `${Math.round(m)} m`
 }
 
 function formatBytes(n: number): string {

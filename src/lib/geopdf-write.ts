@@ -1,6 +1,7 @@
 import type { Position } from 'geojson'
 import { zlibSync } from 'fflate'
-import { formatCoord, fromUtm, toUtm } from './coords'
+import { formatCoord, fromUtm, toUtm, type CoordFormat } from './coords'
+import { M_PER_CHAIN, M_PER_FT, M_PER_MI, M_PER_NM, type DistanceUnit } from './units'
 
 /**
  * "Send this area as a map": writes a georeferenced PDF (ISO 32000-2 §12.9)
@@ -362,8 +363,42 @@ export interface GeoPdfInput {
   /** Data credits, one line each (wrapped to fit). */
   attribution: string[]
   generatedAt: Date
+  /**
+   * The user's unit settings (src/lib/units.ts): the first scale bar is in
+   * `distance` (the second is metric, or imperial when that's metric), and
+   * corner coordinates are in `coords`. Default: metric, DDM.
+   */
+  units?: { distance: DistanceUnit; coords: CoordFormat }
   /** Test only: red crosshairs with their true coordinates, drawn as vectors. */
   checkpoints?: { label: string; position: Position }[]
+}
+
+const COORD_NAMES: Record<CoordFormat, string> = {
+  dd: 'decimal degrees',
+  ddm: 'degrees and decimal minutes',
+  dms: 'degrees, minutes and seconds',
+  utm: 'UTM',
+  mgrs: 'MGRS',
+  bcalbers: 'BC Albers (EPSG:3005)',
+}
+
+/** A corner coordinate split over two lines (latitude over longitude, or easting over northing). */
+export function cornerLines(pos: Position, fmt: CoordFormat): [string, string] {
+  const s = formatCoord(pos, fmt)
+  if (fmt === 'dd') {
+    const [lat, lng] = s.split(', ')
+    return [lat, lng]
+  }
+  if (fmt === 'mgrs') {
+    const m = /^(\d{1,2}[A-Z])([A-Z]{2})(\d*)$/.exec(s)
+    if (!m) return [s, '']
+    const half = m[3].length / 2
+    return [`${m[1]} ${m[2]}`, `${m[3].slice(0, half)} ${m[3].slice(half)}`]
+  }
+  const parts = s.split(' ')
+  if (parts.length < 2) return [s, '']
+  const cut = parts.length - 1
+  return [parts.slice(0, cut).join(' '), parts[cut]]
 }
 
 /** ArcGIS's own WKT for Web Mercator (EPSG:3857). */
@@ -509,9 +544,10 @@ export async function buildGeoPdf(input: GeoPdfInput): Promise<Uint8Array> {
   // ---- Neatline.
   page.drawRectangle({ x: frame.x, y: frame.y, width: frame.w, height: frame.h, borderColor: rgb(0, 0, 0), borderWidth: 1.2 })
 
-  // ---- Corner coordinates (WGS 84, degrees and decimal minutes): latitude
-  // over longitude at each corner, outside the frame, one line further out
-  // than the grid labels so every grid line keeps its label.
+  // ---- Corner coordinates, in the user's format, on two lines at each
+  // corner outside the frame, one line further out than the grid labels so
+  // every grid line keeps its label.
+  const units = input.units ?? { distance: 'metric', coords: 'ddm' }
   const corners = areaCorners(area)
   const CORNER_SIZE = 6.5
   const aboveY = frame.y + frame.h + 3.5 // grid label line next to the frame's top edge
@@ -523,10 +559,10 @@ export async function buildGeoPdf(input: GeoPdfInput): Promise<Uint8Array> {
     [corners.sw, false, false],
     [corners.se, false, true],
   ] as const) {
-    const [lat, lng] = formatCoord(pos, 'ddm').split(' ')
+    const [first, second] = cornerLines(pos, units.coords)
     const lines = top
-      ? [[lat, aboveY + 2 * LINE], [lng, aboveY + LINE]]
-      : [[lat, belowY - LINE], [lng, belowY - 2 * LINE]]
+      ? [[first, aboveY + 2 * LINE], [second, aboveY + LINE]]
+      : [[first, belowY - LINE], [second, belowY - 2 * LINE]]
     for (const [s, y] of lines as [string, number][]) {
       text(s, right ? frame.x + frame.w - width(s, CORNER_SIZE) : frame.x, y, CORNER_SIZE)
     }
@@ -580,8 +616,8 @@ export async function buildGeoPdf(input: GeoPdfInput): Promise<Uint8Array> {
   const footerTop = MARGIN + FOOTER_H - 4
   const mPerPt = metresPerPx(area) / PT_PER_PX
   const barMax = Math.min(170, (layout.pageW - 2 * MARGIN) * 0.3)
-  const drawBar = (y: number, units: 'metric' | 'imperial') => {
-    const bar = scaleBar(barMax * mPerPt, units)
+  const drawBar = (y: number, unit: DistanceUnit) => {
+    const bar = scaleBar(barMax * mPerPt, unit)
     const segPt = bar.metres / mPerPt / 4
     for (let i = 0; i < 4; i++) {
       page.drawRectangle({
@@ -601,8 +637,8 @@ export async function buildGeoPdf(input: GeoPdfInput): Promise<Uint8Array> {
     }
     text(bar.unit, MARGIN + 4 * segPt + 4, y - 0.5, 6)
   }
-  drawBar(footerTop - 14, 'metric')
-  drawBar(footerTop - 34, 'imperial')
+  drawBar(footerTop - 14, units.distance)
+  drawBar(footerTop - 34, units.distance === 'metric' ? 'imperial' : 'metric')
   text(`1:${roundScale(scale).toLocaleString('en-US')} at full size`, MARGIN, footerTop - 47, 6.5, bold)
 
   // North arrow: Web Mercator keeps true north straight up everywhere.
@@ -629,7 +665,7 @@ export async function buildGeoPdf(input: GeoPdfInput): Promise<Uint8Array> {
     ])
   }
   if (input.grid && !grid) notes.push(['No UTM grid: this area is too big for a 10 km grid.', font, ink.black])
-  notes.push(['Corner coordinates: WGS 84, degrees and decimal minutes.', font, ink.black])
+  notes.push([`Corner coordinates: ${COORD_NAMES[units.coords]}${units.coords === 'bcalbers' ? '' : ', WGS 84'}.`, font, ink.black])
   for (const line of input.attribution) notes.push([line, font, ink.grey])
   notes.push([`Generated by Carmanah Maps · ${stamp}`, bold, ink.black])
   const NOTE_SIZE = 5.6
@@ -683,31 +719,30 @@ function formatStamp(d: Date): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
 }
 
-/** The longest round scale-bar length that fits, with its labels. */
+/** The longest round scale-bar length that fits, in a distance unit, with its labels. */
 export function scaleBar(
   maxMetres: number,
-  units: 'metric' | 'imperial',
+  unit: DistanceUnit,
 ): { metres: number; half: string; full: string; unit: string } {
   const nice = (max: number) => {
     const p = 10 ** Math.floor(Math.log10(max))
     return [5, 2, 1].map((m) => m * p).find((v) => v <= max) ?? p
   }
   const fmt = (n: number) => String(+n.toFixed(3))
-  if (units === 'metric') {
-    const m = nice(maxMetres)
-    const km = m >= 1000
-    const div = km ? 1000 : 1
-    return { metres: m, half: fmt(m / 2 / div), full: fmt(m / div), unit: km ? 'km' : 'm' }
+  const bar = (perUnit: number, label: string) => {
+    const n = nice(maxMetres / perUnit)
+    return { metres: n * perUnit, half: fmt(n / 2), full: fmt(n), unit: label }
   }
-  const FT = 0.3048
-  const MI = 1609.344
-  const maxFt = maxMetres / FT
-  if (maxFt >= 2640) {
-    const mi = nice(maxMetres / MI)
-    return { metres: mi * MI, half: fmt(mi / 2), full: fmt(mi), unit: 'mi' }
+  switch (unit) {
+    case 'imperial':
+      return maxMetres / M_PER_FT >= 2640 ? bar(M_PER_MI, 'mi') : bar(M_PER_FT, 'ft')
+    case 'nautical':
+      return maxMetres / M_PER_NM >= 0.5 ? bar(M_PER_NM, 'NM') : bar(M_PER_FT, 'ft')
+    case 'chains':
+      return bar(M_PER_CHAIN, 'ch')
+    default:
+      return maxMetres >= 1000 ? bar(1000, 'km') : bar(1, 'm')
   }
-  const ft = nice(maxFt)
-  return { metres: ft * FT, half: fmt(ft / 2), full: fmt(ft), unit: 'ft' }
 }
 
 function wrap(s: string, measure: (s: string) => number, maxW: number): string[] {

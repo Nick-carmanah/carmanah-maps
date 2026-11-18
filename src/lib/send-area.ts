@@ -1,5 +1,6 @@
 import type { Position } from 'geojson'
 import { getProfile } from './naming'
+import { getUnitSettings } from './units'
 import {
   buildGeoPdf,
   pageLayout,
@@ -139,6 +140,7 @@ export async function createAreaMap(options: AreaMapOptions): Promise<AreaMap> {
     grid: options.grid,
     attribution: attributionLines(options.layers),
     generatedAt,
+    units: { distance: getUnitSettings().distance, coords: getUnitSettings().coords },
     checkpoints: options.checkpoints,
   })
   const file = new File([pdf as Uint8Array<ArrayBuffer>], fileNameFor(options.title), {
