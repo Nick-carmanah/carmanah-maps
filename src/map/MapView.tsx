@@ -37,6 +37,7 @@ import {
 } from '../lib/mappacks'
 import { BASEMAP_LAYER_IDS, MAP_STYLE } from './basemap'
 import { EMBEDDED } from '../lib/embedded'
+import { satelliteSignal } from '../lib/satellite-signal'
 
 interface MapViewProps {
   /** Imported maps from the Maps library (GeoPDFs), oldest first. */
@@ -78,7 +79,8 @@ interface MapViewProps {
   onNotify: (message: string, isError?: boolean) => void
   /** Hands out the map instance once it exists (null after it's removed). */
   onMapReady?: (map: MlMap | null) => void
-  /** 'none' while a custom map is open on its own: a plain background around it. */
+  /** The basemap to draw: streets whenever satellite has no signal, and
+   * 'none' while a custom map is open on its own (a plain background around it). */
   basemap: Basemap
   /** Bump to open the coordinate search input (from the tools sheet). */
   openSearchNonce: number
@@ -293,7 +295,18 @@ export default function MapView({
     onMapReadyRef.current?.(map)
     // Dev console access (harmless in prod, handy for debugging in the field too)
     ;(window as unknown as Record<string, unknown>).__map = map
-    map.on('error', (e) => console.error('[map error]', e.error?.message ?? e))
+    map.on('error', (e) => {
+      // A satellite tile that didn't load: several in a row mean no signal,
+      // and the map shows streets instead of blank tiles.
+      if ((e as { sourceId?: string }).sourceId === 'satellite' && 'tile' in e) {
+        satelliteSignal.tileFailed()
+        return
+      }
+      console.error('[map error]', e.error?.message ?? e)
+    })
+    map.on('sourcedata', (e) => {
+      if (e.sourceId === 'satellite' && e.tile) satelliteSignal.tileLoaded()
+    })
 
     // NWCG icons and icons restored from imported KMZ files load lazily the
     // first time a feature references one.

@@ -52,6 +52,8 @@ import { navTargetPosition, useNavigation } from './hooks/useNavigation'
 import { useGeofences } from './hooks/useGeofences'
 import { useMapsLibrary } from './hooks/useMapsLibrary'
 import { useMapViewer } from './hooks/useMapViewer'
+import { useSatelliteSignal } from './hooks/useSatelliteSignal'
+import { removeSavedSatelliteTiles } from './lib/mappacks'
 import {
   deleteFeature,
   deletePhoto,
@@ -117,6 +119,10 @@ export default function App() {
   const [basemap, setBasemap] = useState<'streets' | 'satellite'>(
     () => (localStorage.getItem('carmanah-basemap') as 'streets' | 'satellite') || 'streets',
   )
+  // Satellite is online only (Esri's terms): without signal the map shows
+  // streets, which can be saved offline, instead of blank tiles.
+  const satelliteOk = useSatelliteSignal(basemap === 'satellite')
+  const shownBasemap = basemap === 'satellite' && !satelliteOk ? 'streets' : basemap
   const [searchNonce, setSearchNonce] = useState(0)
   const navTarget = userFeatures.find((f) => f.id === navTargetId) ?? null
   const nav = useNavigation(navTarget, (m, e) => showToastRef.current(m, e))
@@ -189,6 +195,16 @@ export default function App() {
     toastTimer.current = setTimeout(() => setToast(null), isError ? 6000 : 3500)
   }, [])
   showToastRef.current = showToast
+
+  useEffect(() => {
+    if (basemap === 'satellite' && !satelliteOk) showToast('Satellite needs signal. Showing streets.')
+  }, [basemap, satelliteOk, showToast])
+
+  // Older versions kept satellite tiles offline; Esri's terms don't allow it.
+  useEffect(() => {
+    const timer = setTimeout(() => void removeSavedSatelliteTiles().catch(() => {}), 5000)
+    return () => clearTimeout(timer)
+  }, [])
 
   const refreshLiveFires = useCallback(async () => {
     setLiveRefreshing(true)
@@ -713,7 +729,7 @@ export default function App() {
           }}
           onNotify={showToast}
           onMapReady={setMainMap}
-          basemap={viewer.basemapShown ? basemap : 'none'}
+          basemap={viewer.basemapShown ? shownBasemap : 'none'}
           openSearchNonce={searchNonce}
         />
 
@@ -760,6 +776,7 @@ export default function App() {
               gridOn={gridOn}
               onToggleGrid={handleToggleGrid}
               basemap={basemap}
+              satelliteOk={satelliteOk}
               onSetBasemap={chooseBasemap}
               onClose={() => setLayersOpen(false)}
               hasMyData={layers.length > 0}
@@ -823,6 +840,7 @@ export default function App() {
             storageBackend={maps.storageBackend}
             current={viewer.choice}
             basemap={basemap}
+            satelliteOk={satelliteOk}
             onSetBasemap={chooseBasemap}
             onOpen={viewer.open}
             onImportFiles={() => fileInputRef.current?.click()}

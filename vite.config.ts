@@ -3,6 +3,10 @@ import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 import { EMBEDDED_BASE, EMBEDDED_MODE, EMBEDDED_OUT_DIR, embeddedBuild } from './build/embedded'
 
+/** Tile hosts the service worker keeps (cache-first) for offline use. */
+export const TILE_CACHE_PATTERN =
+  /^https:\/\/(tiles\.openfreemap\.org|s3\.amazonaws\.com\/elevation-tiles-prod)\/.*/
+
 // `vite build --mode embedded` (npm run build:embedded) makes the map page the
 // crew app ships at /maps/, without a service worker: see build/embedded.ts.
 export default defineConfig(({ mode }) => ({
@@ -59,9 +63,12 @@ export default defineConfig(({ mode }) => ({
             }
           },
           {
-            // Basemap tiles, fonts and icons, satellite, and terrain tiles: cache-first.
-            urlPattern:
-              /^https:\/\/(tiles\.openfreemap\.org|server\.arcgisonline\.com|s3\.amazonaws\.com\/elevation-tiles-prod)\/.*/,
+            // Basemap and terrain tiles: cache-first.
+            // Never satellite: Esri World Imagery (server.arcgisonline.com)
+            // may not be kept offline outside Esri software, so it stays
+            // online only (src/lib/satellite-signal.ts). test/satellite-
+            // online-only.test.ts checks this pattern.
+            urlPattern: TILE_CACHE_PATTERN,
             handler: 'CacheFirst',
             options: {
               cacheName: 'map-tiles',

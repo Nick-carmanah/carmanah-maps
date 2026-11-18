@@ -23,6 +23,8 @@ interface MyMapsProps {
   /** What's open now (highlighted). */
   current: MapChoice
   basemap: Basemap
+  /** Satellite is online only (#19): without signal the base map shows streets. */
+  satelliteOk: boolean
   onSetBasemap: (b: Basemap) => void
   onOpen: (choice: MapChoice) => void
   onImportFiles: () => void
@@ -50,6 +52,7 @@ export default function MyMaps({
   storageBackend,
   current,
   basemap,
+  satelliteOk,
   onSetBasemap,
   onOpen,
   onImportFiles,
@@ -189,6 +192,7 @@ export default function MyMaps({
       <div className="my-maps-scroll">
         <BaseMapRow
           basemap={basemap}
+          satelliteOk={satelliteOk}
           isCurrent={current.kind === 'base'}
           onOpen={() => onOpen({ kind: 'base' })}
           onSetBasemap={onSetBasemap}
@@ -263,11 +267,13 @@ export default function MyMaps({
 /** The plain base map, always first (Avenza lists its base map the same way). */
 function BaseMapRow({
   basemap,
+  satelliteOk,
   isCurrent,
   onOpen,
   onSetBasemap,
 }: {
   basemap: Basemap
+  satelliteOk: boolean
   isCurrent: boolean
   onOpen: () => void
   onSetBasemap: (b: Basemap) => void
@@ -282,7 +288,11 @@ function BaseMapRow({
           <span className="map-name">
             Base map {isCurrent && <span className="maps-badge">open</span>}
           </span>
-          <span className="map-meta">Anywhere · your saved offline areas work without signal</span>
+          <span className="map-meta">
+            {basemap === 'satellite' && !satelliteOk
+              ? 'Satellite needs signal: showing streets'
+              : 'Anywhere · your saved offline areas work without signal'}
+          </span>
         </button>
         <div className="seg seg-small" role="group" aria-label="Base map style">
           {(['streets', 'satellite'] as const).map((b) => (
