@@ -10,6 +10,8 @@ import SendAreaSheet from './components/SendAreaSheet'
 import { printableLayers } from './map/print-render'
 import FeatureSheet, { type PhotoThumb } from './components/FeatureSheet'
 import UnitsSettings from './components/UnitsSettings'
+import MapsLibrary from './components/MapsLibrary'
+import { ImportChip, PagePicker } from './components/PagePicker'
 import { buildExport, shareOrDownload, type ExportOptions } from './lib/export'
 import { DEFAULT_LAYERS, featuresToGeoJSON, type UserFeature } from './lib/features'
 import { fetchImportFromUrl, parseImportedFile } from './lib/importers'
@@ -25,7 +27,6 @@ import {
 import { commitImport, deleteLayersAndFeatures, loadMyData } from './lib/mydata'
 import { symbolPng } from './lib/symbols'
 import { boundsOf } from './lib/geo'
-import { parseGeoPdfRegions, renderGeoPdfRegion } from './lib/geopdf'
 import { fetchLiveFires, type LiveFires } from './lib/livefires'
 import { pathLengthMeters, ringAreaSqMeters } from './lib/measure'
 import {
@@ -41,22 +42,19 @@ import { formatDuration, trackStats, useTrackRecorder } from './hooks/useTrackRe
 import { conventionActive, buildConventionName, getProfile, saveProfile } from './lib/naming'
 import { navTargetPosition, useNavigation } from './hooks/useNavigation'
 import { useGeofences } from './hooks/useGeofences'
+import { useMapsLibrary } from './hooks/useMapsLibrary'
 import {
   deleteFeature,
   deletePhoto,
   deletePhotosForFeature,
-  deleteRaster,
   getCached,
   listPhotos,
-  listRasters,
   requestPersistentStorage,
   saveFeature,
   saveLayer,
   savePhoto,
-  saveRaster,
   setCached,
   writeBatch,
-  type RasterOverlay,
 } from './lib/store'
 import type { Position } from 'geojson'
 import type { LngLatBoundsLike } from 'maplibre-gl'
@@ -71,8 +69,6 @@ interface Toast {
 }
 
 export default function App() {
-  const [rasterOverlays, setRasterOverlays] = useState<RasterOverlay[]>([])
-  const [hiddenIds, setHiddenIds] = useState<Set<string>>(new Set())
   const [scanning, setScanning] = useState(false)
   const [measuring, setMeasuring] = useState(false)
   const [liveEnabled, setLiveEnabled] = useState(
@@ -97,6 +93,8 @@ export default function App() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const track = useTrackRecorder((m, e) => showToastRef.current(m, e))
   const showToastRef = useRef<(m: string, e?: boolean) => void>(() => {})
+  const maps = useMapsLibrary((m, e) => showToastRef.current(m, e))
+  const [mapsOpen, setMapsOpen] = useState(false)
   const [navTargetId, setNavTargetId] = useState<string | null>(null)
   const [photos, setPhotos] = useState<PhotoThumb[]>([])
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -134,11 +132,11 @@ export default function App() {
     bounds?: LngLatBoundsLike | null
   } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const pdfInputRef = useRef<HTMLInputElement>(null)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
   useEffect(() => {
     requestPersistentStorage()
-    listRasters().then(setRasterOverlays)
     // Layers + features (the first run moves old data into layers).
     loadMyData()
       .then((data) => {
@@ -252,59 +250,21 @@ export default function App() {
     [showToast],
   )
 
-  const addRaster = useCallback(
-    async (name: string, corners: RasterOverlay['corners'], image: Blob) => {
-      const raster: RasterOverlay = {
-        id: crypto.randomUUID(),
-        name,
-        addedAt: Date.now(),
-        corners,
-        image,
-      }
-      await saveRaster(raster)
-      setRasterOverlays((prev) => [raster, ...prev])
-      focusOverlay(raster.id)
-      showToast(`Added "${raster.name}" — saved for offline use`)
+  /** Show a library map (if hidden) and fly to it. */
+  const showMap = useCallback(
+    (id: string) => {
+      if (maps.maps.find((m) => m.id === id)?.visible === false) maps.updateMap(id, { visible: true })
+      focusOverlay(id)
     },
-    [focusOverlay, showToast],
+    [maps, focusOverlay],
   )
 
   const handlePdfImport = useCallback(
     async (file: File) => {
-      const bytes = new Uint8Array(await file.arrayBuffer())
-      const regions = await parseGeoPdfRegions(bytes)
-      if (!regions.length) {
-        showToast(
-          `${file.name}: no embedded georeferencing found — this PDF can't be auto-placed`,
-          true,
-        )
-        return
-      }
-      showToast(`Placing ${file.name}…`)
-      // A file can carry several georeferenced regions (multi-page); import all.
-      const drawErrors = new Set<string>()
-      for (const region of regions) {
-        const rendered = await renderGeoPdfRegion(bytes, region)
-        const { blob, corners } = rendered
-        const name = regions.length > 1 ? `${file.name} p${region.pageIndex + 1}` : file.name
-        await addRaster(name.replace(/\.pdf$/i, ''), [
-          corners.topLeft,
-          corners.topRight,
-          corners.bottomRight,
-          corners.bottomLeft,
-        ], blob)
-        rendered.drawErrors.forEach((e) => drawErrors.add(e))
-      }
-      // After the loop, so a later page's "Added" toast can't cover it.
-      if (drawErrors.size) {
-        console.warn(`${file.name}: pdf.js skipped errors while drawing`, [...drawErrors])
-        showToast(
-          `${file.name}: saved, but part of the map didn't draw (${[...drawErrors][0]}). Text or layers may be missing. Update the phone's software, or report this map.`,
-          true,
-        )
-      }
+      const added = await maps.importPdf(file)
+      if (added.length) focusOverlay(added[added.length - 1].id)
     },
-    [addRaster, showToast],
+    [maps, focusOverlay],
   )
 
   const handleFiles = useCallback(
@@ -324,11 +284,6 @@ export default function App() {
     },
     [handleImport, handlePdfImport, showToast],
   )
-
-  const handleRemoveRaster = useCallback(async (id: string) => {
-    await deleteRaster(id)
-    setRasterOverlays((prev) => prev.filter((r) => r.id !== id))
-  }, [])
 
   const handleQrResult = useCallback(
     async (text: string) => {
@@ -614,15 +569,6 @@ export default function App() {
     })
   }, [])
 
-  const handleToggle = useCallback((id: string) => {
-    setHiddenIds((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }, [])
-
   return (
     <div
       className="app"
@@ -650,12 +596,22 @@ export default function App() {
             e.target.value = ''
           }}
         />
+        <input
+          ref={pdfInputRef}
+          type="file"
+          accept=".pdf,application/pdf"
+          multiple
+          hidden
+          onChange={(e) => {
+            handleFiles(e.target.files)
+            e.target.value = ''
+          }}
+        />
       </header>
 
       <div className="map-container">
         <MapView
-          rasterOverlays={rasterOverlays}
-          hiddenIds={hiddenIds}
+          mapLayers={maps.layers}
           focusRequest={focusRequest}
           measureMode={measuring}
           onExitMeasure={() => setMeasuring(false)}
@@ -702,13 +658,10 @@ export default function App() {
           <div className="sheet-wrap">
             <div className="sheet-backdrop" onClick={() => setLayersOpen(false)} />
             <LayerPanel
-              rasterOverlays={rasterOverlays}
-              hiddenIds={hiddenIds}
-              onToggle={handleToggle}
-              onRemoveRaster={handleRemoveRaster}
-              onFocus={(id) => {
+              mapsCount={maps.maps.length}
+              onOpenMaps={() => {
                 setLayersOpen(false)
-                focusOverlay(id)
+                setMapsOpen(true)
               }}
               liveEnabled={liveEnabled}
               liveFetchedAt={liveData?.fetchedAt ?? null}
@@ -776,6 +729,27 @@ export default function App() {
             onClose={() => setSendAreaOpen(false)}
             onNotify={showToast}
           />
+        )}
+
+        {mapsOpen && (
+          <div className="sheet-wrap">
+            <div className="sheet-backdrop" onClick={() => setMapsOpen(false)} />
+            <MapsLibrary
+              maps={maps.maps}
+              currentFolder={maps.defaultFolder}
+              storageBackend={maps.storageBackend}
+              onClose={() => setMapsOpen(false)}
+              onImport={() => pdfInputRef.current?.click()}
+              onUpdate={maps.updateMap}
+              onRemove={maps.removeMap}
+              onZoomTo={(id) => {
+                setMapsOpen(false)
+                showMap(id)
+              }}
+              readOriginal={maps.readOriginal}
+              onShare={maps.shareFile}
+            />
+          </div>
         )}
 
         {toolsOpen && (
@@ -1041,6 +1015,11 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {maps.pendingPick && (
+        <PagePicker request={maps.pendingPick.request} onDone={maps.pendingPick.resolve} />
+      )}
+      {maps.importStatus && !maps.pendingPick && <ImportChip status={maps.importStatus} />}
 
       {toast && <div className={`toast${toast.isError ? ' error' : ''}`}>{toast.message}</div>}
     </div>
