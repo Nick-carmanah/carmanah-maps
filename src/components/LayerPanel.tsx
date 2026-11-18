@@ -1,13 +1,10 @@
 import type { ReactNode } from 'react'
-import type { RasterOverlay } from '../lib/store'
 import { formatAge } from '../lib/livefires'
 
 interface LayerPanelProps {
-  rasterOverlays: RasterOverlay[]
-  hiddenIds: Set<string>
-  onToggle: (id: string) => void
-  onRemoveRaster: (id: string) => void
-  onFocus: (id: string) => void
+  /** How many maps are in the Maps library, and how to open it. */
+  mapsCount: number
+  onOpenMaps: () => void
   liveEnabled: boolean
   liveFetchedAt: number | null
   liveRefreshing: boolean
@@ -26,11 +23,8 @@ interface LayerPanelProps {
 }
 
 export default function LayerPanel({
-  rasterOverlays,
-  hiddenIds,
-  onToggle,
-  onRemoveRaster,
-  onFocus,
+  mapsCount,
+  onOpenMaps,
   liveEnabled,
   liveFetchedAt,
   liveRefreshing,
@@ -70,6 +64,15 @@ export default function LayerPanel({
           ))}
         </span>
       </div>
+      <button className="layer-row maps-entry" onClick={onOpenMaps}>
+        <span className="name">
+          🗺 Maps
+          <div className="meta">
+            {mapsCount ? `${mapsCount} saved · GeoPDFs` : 'Import GeoPDFs from Avenza or BCWS'}
+          </div>
+        </span>
+        <span aria-hidden>›</span>
+      </button>
       {!collapsed && (
         <div className="layer-row">
           <input
@@ -119,39 +122,7 @@ export default function LayerPanel({
         </div>
       )}
       {!collapsed && myData}
-      {!collapsed &&
-        rasterOverlays.map((raster) => (
-          <div className="layer-row" key={raster.id}>
-            <input
-              type="checkbox"
-              checked={!hiddenIds.has(raster.id)}
-              onChange={() => onToggle(raster.id)}
-              title="Show/hide"
-            />
-            <span
-              className="name"
-              onClick={() => onFocus(raster.id)}
-              title="Zoom to layer"
-              style={{ cursor: 'pointer' }}
-            >
-              🗺 {raster.name}
-              <div className="meta">
-                GeoPDF · {new Date(raster.addedAt).toLocaleDateString()}
-              </div>
-            </span>
-            <button
-              onClick={() => {
-                if (confirm(`Remove "${raster.name}" from your device?`)) {
-                  onRemoveRaster(raster.id)
-                }
-              }}
-              title="Delete layer"
-            >
-              ✕
-            </button>
-          </div>
-        ))}
-      {!collapsed && !hasMyData && rasterOverlays.length === 0 && (
+      {!collapsed && !hasMyData && (
         <div className="empty">Scan a fire QR code or import a KML, KMZ, GPX, CSV or GeoPDF to get started.</div>
       )}
     </div>
