@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- No http(s) anywhere: tiles, glyphs and sprites can only come from
+         on-device storage. 'self' is capacitor://localhost, which also serves
+         files from the app container (convertFileSrc). Workers are blob: URLs
+         (MapLibre). Any blocked attempt is counted on screen. -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' capacitor://localhost; script-src 'self' capacitor://localhost; style-src 'self' capacitor://localhost 'unsafe-inline'; img-src 'self' capacitor://localhost data: blob:; font-src 'self' capacitor://localhost; connect-src 'self' capacitor://localhost; worker-src blob:; child-src blob:; frame-src 'none'; object-src 'none'; base-uri 'none'" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Maps Harness — offline map</title>
+    <link rel="stylesheet" href="./src/harness.css" />
+  </head>
+  <body>
+    <div id="map"></div>
+    <div id="hud">Loading…</div>
+    <div id="panel">
+      <button data-path="file">file</button>
+      <button data-path="range">range</button>
+      <button data-path="offset">offset</button>
+      <button id="bench-tiles">Bench tiles</button>
+      <button id="bench-render">Bench render</button>
+      <a href="./tools.html">Tools →</a>
+    </div>
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>

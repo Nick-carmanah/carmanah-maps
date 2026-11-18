@@ -1,0 +1,13 @@
+{
+  "appId": "com.carmanahwildfire.mapsharness",
+  "appName": "Maps Harness",
+  "webDir": "dist",
+  "backgroundColor": "#1a1a1a",
+  "appendUserAgent": "CarmanahMapsHarness/0.1",
+  "loggingBehavior": "debug",
+  "server": {
+    "hostname": "localhost",
+    "iosScheme": "capacitor",
+    "androidScheme": "https"
+  }
+}
