@@ -179,11 +179,9 @@ export default function SendAreaSheet({ map, layers, basemap, onClose, onNotify 
         onProgress: (message) => setPhase({ name: 'working', message }),
       })
       setPhase({ name: 'done', result })
-      if (result.failedTiles || result.incomplete) {
-        onNotify(
-          `Map made, but ${result.failedTiles || 'some'} map tiles didn't load, so parts of it may be blank.`,
-          true,
-        )
+      // Offline gaps were warned about before; this is for surprises (a network drop mid-way).
+      if (result.incomplete || (result.failedTiles && !fresh.offline)) {
+        onNotify("Map made, but some map tiles didn't load, so parts of it may be blank or less detailed.", true)
       }
     } catch (err) {
       setPhase({ name: 'frame' })
@@ -338,7 +336,7 @@ export default function SendAreaSheet({ map, layers, basemap, onClose, onNotify 
                 </>
               ) : (
                 <button className="btn primary" onClick={create} disabled={!area || tileNote?.block}>
-                  {tileNote?.warn ? 'Create map anyway' : 'Create map'}
+                  {tileNote?.warn && !tileNote.block ? 'Create map anyway' : 'Create map'}
                 </button>
               )}
             </div>
@@ -382,19 +380,19 @@ function tileStatus(t: TileCheck | null): { text: string; warn: boolean; block?:
   if (!t.tilesUrl) {
     return { text: "the basemap isn't saved on this device yet. Open the map once with signal.", warn: true, block: true }
   }
-  if (t.missing === null) return null
-  if (t.missing > 0) {
-    if (t.offline && t.missing >= t.total) {
+  if (t.notSaved === null) return null
+  if (t.offline) {
+    if (t.basemapBlank !== null && t.basemapBlank >= t.basemapTotal) {
       return { text: "none of this area is saved offline, so the map would be blank. Save it offline when you have signal.", warn: true, block: true }
     }
-    const pct = Math.max(1, Math.round((t.missing / t.total) * 100))
-    return t.offline
-      ? { text: `about ${pct}% of this area isn't saved offline and will be blank`, warn: true }
-      : { text: `${t.missing} map tiles will download`, warn: false }
+    if (t.basemapBlank) {
+      const pct = Math.max(1, Math.round((t.basemapBlank / t.basemapTotal) * 100))
+      return { text: `about ${pct}% of this area isn't saved offline and will be blank`, warn: true }
+    }
+    if (t.labelsMissing) return { text: "label fonts aren't saved offline, so names may be missing", warn: true }
+    return { text: t.coarser ? 'offline: parts drawn from less detailed saved tiles' : 'offline: this area is saved', warn: false }
   }
-  if (t.labelsMissing) return { text: "label fonts aren't saved offline, so names may be missing", warn: true }
-  if (t.offline) return { text: t.coarser ? 'offline: some detail from coarser saved tiles' : 'offline: all tiles saved', warn: false }
-  return null
+  return t.notSaved > 0 ? { text: `${t.notSaved} map tiles will download`, warn: false } : null
 }
 
 function formatGround(m: number): string {

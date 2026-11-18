@@ -123,23 +123,32 @@ export function planPieces(area: MapArea, pixelRatio: number, maxCanvas = MAX_CA
 export interface TileCheck {
   /** Vector tile URL template, from the basemap's TileJSON (null: never loaded on this device). */
   tilesUrl: string | null
-  /** Highest tile zoom to draw each source from. */
-  vectorZoom: number
-  terrainZoom: number
-  /** Tiles at those zooms that aren't saved on the device; null when this device can't tell. */
-  missing: number | null
-  total: number
+  /** Basemap and terrain tiles the page needs at full detail that aren't saved (online, they download); null when it can't tell. */
+  notSaved: number | null
+  /** Basemap (vector) tiles the page needs at full detail. */
+  basemapTotal: number
+  /** Offline: basemap tiles with nothing saved for them, not even coarser ones, so those parts come out blank. */
+  basemapBlank: number | null
+  /**
+   * Offline: basemap tiles that will be drawn from a coarser saved tile (fewer
+   * small roads and names). Terrain from coarser tiles isn't counted: saved
+   * areas keep terrain only to z12, so close-up maps always use it, and the
+   * hillshade just looks a little softer.
+   */
+  coarser: number
   /** Label fonts or map icons aren't saved (offline only). */
   labelsMissing: boolean
   offline: boolean
-  /** Offline, a source is drawn from coarser tiles than ideal because the finer ones aren't saved. */
-  coarser: boolean
 }
 
 const VECTOR_MAX_Z = 14
 const TERRAIN_MAX_Z = (MAP_STYLE.sources.terrain as RasterDEMSourceSpecification).maxzoom ?? 14
 const TERRAIN_URL = (MAP_STYLE.sources.terrain as RasterDEMSourceSpecification).tiles![0]
-/** How many zoom levels coarser we'll go, offline, rather than leave a gap. */
+/**
+ * How many zoom levels coarser a missing tile may be filled from, offline.
+ * MapLibre does the filling (it requests a failed tile's parent); capture()
+ * gives it up to this many rounds to climb.
+ */
 const MAX_FALLBACK = 4
 
 let tileJsonMemo: { url: string; at: number } | null = null
@@ -177,25 +186,51 @@ async function savedOffline(url: string): Promise<boolean | null> {
   }
 }
 
-/** URLs of the tiles a source needs to draw the area (and its render margins) from zoom z. */
-function tileUrls(area: MapArea, z: number, template: string): string[] {
+/** Tiles (x, y) a source needs at zoom z to draw the area and its render margins. */
+function tilesFor(area: MapArea, z: number): [number, number][] {
   const n = 2 ** z
   const s = worldSize(area.zoom)
   const tile = (v: number) => Math.min(n - 1, Math.max(0, Math.floor((v / s) * n)))
   const B = RENDER_BUFFER
-  const urls: string[] = []
+  const out: [number, number][] = []
   for (let x = tile(area.x0 - B); x <= tile(area.x0 + area.w + B - 1e-6); x++) {
-    for (let y = tile(area.y0 - B); y <= tile(area.y0 + area.h + B - 1e-6); y++) {
-      urls.push(template.replace('{z}', String(z)).replace('{x}', String(x)).replace('{y}', String(y)))
-    }
+    for (let y = tile(area.y0 - B); y <= tile(area.y0 + area.h + B - 1e-6); y++) out.push([x, y])
   }
-  return urls
+  return out
 }
 
-async function missingUrls(urls: string[], key: (u: string) => string = (u) => u): Promise<string[] | null> {
-  const found = await Promise.all(urls.map((u) => savedOffline(key(u))))
-  if (found.some((f) => f === null)) return null
-  return urls.filter((_, i) => !found[i])
+const tileUrl = (template: string, z: number, x: number, y: number) =>
+  template.replace('{z}', String(z)).replace('{x}', String(x)).replace('{y}', String(y))
+
+/** For each tile the area needs at zoom z: saved, saved only coarser (up to MAX_FALLBACK levels), or nothing. */
+async function coverage(area: MapArea, z: number, template: string, key: (u: string) => string = (u) => u) {
+  const memo = new Map<string, Promise<boolean | null>>()
+  const saved = (tz: number, x: number, y: number) => {
+    const url = tileUrl(template, tz, x, y)
+    if (!memo.has(url)) memo.set(url, savedOffline(key(url)))
+    return memo.get(url)!
+  }
+  const tiles = tilesFor(area, z)
+  let unknown = false
+  let notSaved = 0
+  let coarser = 0
+  let firstNotSaved: string | undefined
+  await Promise.all(
+    tiles.map(async ([x, y]) => {
+      const here = await saved(z, x, y)
+      if (here === null) unknown = true
+      if (here !== false) return
+      notSaved++
+      firstNotSaved ??= tileUrl(template, z, x, y)
+      for (let d = 1; d <= MAX_FALLBACK && z - d >= 0; d++) {
+        if (await saved(z - d, x >> d, y >> d)) {
+          coarser++
+          return
+        }
+      }
+    }),
+  )
+  return { total: tiles.length, notSaved: unknown ? null : notSaved, coarser, firstNotSaved }
 }
 
 /**
@@ -216,45 +251,25 @@ async function reachable(url: string): Promise<boolean> {
 }
 
 /**
- * Which tiles to draw from, and whether they're on the device. MapLibre picks
- * tile zooms the way this does: vector tiles (512 px) at floor(zoom), 256 px
- * raster tiles at round(zoom + 1). Offline, a source whose tiles aren't all
- * saved falls back to the finest zoom (up to 4 coarser) that is complete:
- * blurrier hillshade beats a blank patch.
+ * Are the tiles for this area on the device? Counted at the zooms MapLibre
+ * will ask for: vector tiles (512 px) at floor(zoom), 256 px terrain tiles at
+ * round(zoom + 1). Offline, a tile that isn't saved is drawn from a coarser
+ * saved one if there is one (saved areas keep terrain only to z12, so close-up
+ * maps always use that); only tiles with nothing saved come out blank.
  */
 export async function checkTiles(area: MapArea): Promise<TileCheck> {
   const tilesUrl = await vectorTilesUrl()
-  const ideal = {
-    vector: Math.max(0, Math.min(VECTOR_MAX_Z, Math.floor(area.zoom))),
-    terrain: Math.max(0, Math.min(TERRAIN_MAX_Z, Math.round(area.zoom + 1))),
-  }
-
-  const at = async (z: number, template: string, key?: (u: string) => string) => {
-    const urls = tileUrls(area, z, template)
-    const missing = await missingUrls(urls, key)
-    return { z, total: urls.length, missing: missing?.length ?? null, firstMissing: missing?.[0] }
-  }
-  const idealVector = tilesUrl ? await at(ideal.vector, tilesUrl, tileCacheKey) : null
-  const idealTerrain = await at(ideal.terrain, TERRAIN_URL)
-  const probe = idealVector?.firstMissing ?? idealTerrain.firstMissing
+  const vectorZ = Math.max(0, Math.min(VECTOR_MAX_Z, Math.floor(area.zoom)))
+  const terrainZ = Math.max(0, Math.min(TERRAIN_MAX_Z, Math.round(area.zoom + 1)))
+  const vector = tilesUrl ? await coverage(area, vectorZ, tilesUrl, tileCacheKey) : null
+  const terrain = await coverage(area, terrainZ, TERRAIN_URL)
+  const probe = vector?.firstNotSaved ?? terrain.firstNotSaved
   const offline =
     (typeof navigator !== 'undefined' && navigator.onLine === false) ||
     (probe !== undefined && !(await reachable(probe)))
 
-  const pick = async (first: Awaited<ReturnType<typeof at>>, template: string, key?: (u: string) => string) => {
-    const idealZ = first.z
-    if (!offline || first.missing === null || first.missing === 0) return first
-    let best = first
-    for (let z = idealZ - 1; z >= Math.max(0, idealZ - MAX_FALLBACK); z--) {
-      const r = await at(z, template, key)
-      if (r.missing === 0) return r
-      if (r.missing !== null && r.missing / r.total < best.missing! / best.total) best = r
-    }
-    return best
-  }
-
-  const vector = tilesUrl && idealVector ? await pick(idealVector, tilesUrl, tileCacheKey) : null
-  const terrain = await pick(idealTerrain, TERRAIN_URL)
+  const both = [vector, terrain].filter((c) => c !== null)
+  const notSaved = both.some((c) => c.notSaved === null) ? null : both.reduce((n, c) => n + c.notSaved!, 0)
 
   let labelsMissing = false
   if (offline) {
@@ -263,37 +278,34 @@ export async function checkTiles(area: MapArea): Promise<TileCheck> {
       `${SPRITE_URL}@2x.json`,
       `${SPRITE_URL}@2x.png`,
     ]
-    labelsMissing = ((await missingUrls(assets))?.length ?? 0) > 0
+    labelsMissing = (await Promise.all(assets.map(savedOffline))).some((s) => s === false)
   }
 
-  const missing =
-    vector === null ? null : vector.missing === null || terrain.missing === null ? null : vector.missing + terrain.missing
   return {
     tilesUrl,
-    vectorZoom: vector?.z ?? ideal.vector,
-    terrainZoom: terrain.z,
-    missing,
-    total: (vector?.total ?? 0) + terrain.total,
+    notSaved,
+    basemapTotal: vector?.total ?? 0,
+    basemapBlank: !offline ? 0 : vector?.notSaved == null ? null : vector.notSaved - vector.coarser,
+    coarser: offline ? (vector?.coarser ?? 0) : 0,
     labelsMissing,
     offline,
-    coarser: (vector !== null && vector.z < ideal.vector) || terrain.z < ideal.terrain,
   }
 }
 
 // ---- Style ----------------------------------------------------------------------
 
 /**
- * The app's basemap, with tile zooms capped at what's available, and no
- * satellite: Esri's terms don't allow its imagery in an exported map (see
- * SATELLITE_NOTE in src/lib/send-area.ts).
+ * The app's basemap without satellite: Esri's terms don't allow its imagery
+ * in an exported map (see SATELLITE_NOTE in src/lib/send-area.ts). Tiles are
+ * listed directly (from the TileJSON already read), so the hidden map doesn't
+ * fetch the TileJSON again.
  */
-function printStyle(tiles: TileCheck): StyleSpecification {
-  const terrain = MAP_STYLE.sources.terrain as RasterDEMSourceSpecification
+function printStyle(tilesUrl: string): StyleSpecification {
   return {
     ...MAP_STYLE,
     sources: {
-      openmaptiles: { type: 'vector', tiles: [tiles.tilesUrl!], minzoom: 0, maxzoom: tiles.vectorZoom },
-      terrain: { ...terrain, maxzoom: tiles.terrainZoom },
+      openmaptiles: { type: 'vector', tiles: [tilesUrl], minzoom: 0, maxzoom: VECTOR_MAX_Z },
+      terrain: MAP_STYLE.sources.terrain,
     },
     layers: MAP_STYLE.layers.filter((layer) => layer.id !== 'satellite'),
   }
@@ -548,7 +560,7 @@ async function renderAreaOnce(options: RenderOptions & { maxCanvas: number }): P
       worldToLngLat(area.x0 + p.x + p.w / 2, area.y0 + p.y + p.h / 2, area.zoom) as [number, number]
     map = new maplibregl.Map({
       container,
-      style: printStyle(options.tiles),
+      style: printStyle(options.tiles.tilesUrl),
       center: centreOf(plan[0]),
       zoom: area.zoom,
       bearing: 0,
@@ -577,7 +589,7 @@ async function renderAreaOnce(options: RenderOptions & { maxCanvas: number }): P
       sizeTo(p)
       map.resize()
       map.jumpTo({ center: centreOf(p), zoom: area.zoom, bearing: 0, pitch: 0 })
-      const shot = await capture(map, p, pixelRatio)
+      const shot = await capture(map, p, pixelRatio, () => failed.size)
       incomplete ||= !shot.complete
       signal?.throwIfAborted()
       pieces.push(await encodePiece(shot, p, options.format))
@@ -604,10 +616,18 @@ interface Shot {
  * copy the piece (minus its margin) out of the WebGL canvas. The copy happens
  * inside the event, in the same frame the map was drawn, so it doesn't need
  * preserveDrawingBuffer (which costs memory iPhones don't have to spare).
+ *
+ * Offline, tiles that aren't saved fail. MapLibre then asks for the failed
+ * tile's parent, but only at its next tile update, which a network error
+ * doesn't trigger. So while tiles keep failing, nudge the map (a jump to the
+ * same spot) and wait again: each round climbs one zoom level, filling gaps
+ * from coarser saved tiles where there are any.
  */
-function capture(map: MlMap, p: RenderPiece, pixelRatio: number): Promise<Shot> {
+function capture(map: MlMap, p: RenderPiece, pixelRatio: number, failures: () => number): Promise<Shot> {
   return new Promise((resolve, reject) => {
     let done = false
+    let seen = failures()
+    let rounds = 0
     const grab = (complete: boolean) => {
       if (done) return
       done = true
@@ -635,7 +655,16 @@ function capture(map: MlMap, p: RenderPiece, pixelRatio: number): Promise<Shot> 
         reject(err)
       }
     }
-    const onIdle = () => grab(true)
+    const onIdle = () => {
+      const now = failures()
+      if (now > seen && rounds < MAX_FALLBACK + 1) {
+        seen = now
+        rounds++
+        map.jumpTo({ center: map.getCenter(), zoom: map.getZoom() })
+        return
+      }
+      grab(true)
+    }
     map.on('idle', onIdle)
     // A tile that never answers: take what's drawn, in a render frame.
     const timer = setTimeout(() => {
