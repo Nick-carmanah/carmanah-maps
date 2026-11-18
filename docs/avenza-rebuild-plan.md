@@ -11,6 +11,36 @@ Legend: ✅ solid · 🟡 partial or fragile · ⬜ missing · ➖ deliberately 
 
 ---
 
+## 0. Where this ships (decided 2026-11-17)
+
+**This is not a standalone web app.** It's the **mapping section of the
+Carmanah crew app** (repo Nick-carmanah/Carmanah-App), which reaches the App
+Store and Google Play through its Capacitor 8.6 build. We build the map
+section here; the Carmanah App master integrates it through a reviewed PR in
+that repo, on Nick's go. The GitHub Pages site is only a dev harness.
+
+The integration contract, agreed with the Carmanah App master:
+
+| Topic | Contract |
+|---|---|
+| Mounting | Its own page, `public/maps/index.html` in the crew app, opened from a Home button. The crew app is one page (`App.navigate(view)`); React stays out of `app.js`. |
+| Delivery | We commit the **prebuilt** folder into the crew app's `public/maps/` through a PR there. Production has no build step and its root package-lock can't change, so no new packages go there. Hashed file names, nothing private (`public/` is served without sign-in), no Province crew-only material, every outside script pinned to an exact version. |
+| Native plugins | Reached through `window.Capacitor` (the page has no `App` object). The crew app's bundle script must also inject `/capacitor.js` into `maps/index.html`; that's a crew-app change. Available today: Filesystem, Share, Network, App, Browser. New plugins (background location, "Open in" document types) are specs we hand over; they change Apple and Google review and the privacy answers. |
+| Offline | No service worker of our own. We write `maps/precache-manifest.json`; the crew app's `sw.js` keeps its own reviewed `MAPS_FILES` list, generated from it by a script in the maps PR, with a test that the two match. Files are saved one at a time like `FIELD_FILES`, so a large maps bundle can never block or fail the crew app's install. Every maps release is a crew release (new `CACHE_NAME`). Tiles, packs, imported maps and photos live in the page's own storage, never inside the app bundle: Capacitor Filesystem in the store app (where whole-fire packs belong), OPFS/IndexedDB on the website. The browser can clear website storage under pressure, so website packs are **best-effort** and the UI must say so. |
+| Sign-in and context | Never touch the login tokens (a second page refreshing them can sign people out). The crew app writes a read-only `carmanah.mapsContext.v1` in localStorage (name, call sign, fire number, crew, as-of time; no tokens). We read it to auto-name features the BCWS way. Anything that talks to the server later (shared layers) needs its own reviewed API plan. |
+| Privacy | GPS tracks and pins stay on the phone. A share the person starts through the share sheet (AirDrop/Quick Share to someone they choose, nothing reaching Carmanah) isn't collection by Carmanah, so the store privacy answers don't change. The maps PR still adds one honest line to `/privacy` (tracks and pins stay on the phone and leave only when the person shares them) and clear foreground and background location permission texts. The full rule (`/privacy` plus `docs/store-privacy-answers.md`) applies the day anything reaches Carmanah's server. Google Play needs a background-location declaration. |
+| Shared phones | Crews share phones. Tracks, pins, photos and imported layers are personal (a track is location history), so each carries an **owner** from the hand-off (which carries an owner id). Another person signed in on the same phone doesn't see them, and the crew app's account deletion (`_removePersonFromPhone`, checked by its account-deletion test) must be able to remove them. A guest's maps keep a guest owner, as Field Notes do. Plan: one storage namespace per owner (an IndexedDB database and a Filesystem folder per owner id) so deletion is a single drop. Basemap packs aren't personal and can be shared between people on the phone. |
+| Timing | Not in the first store version (submission Dec 5, launch Dec 15). Website first, whenever ready, on Nick's go; store update after launch (January or spring). |
+| Engine | This becomes the crew app's first map engine. The Command Centre's Leaflet Ops Map stays as it is. |
+
+**Field requirements (Nick):** offline first. Offline areas as big as a whole
+fire (1,000,000+ ha, roughly 100 × 100 km). Crews offline for hours,
+sometimes days. AirDrop or Quick Share maps and layers to people still on
+Avenza, offline. iOS and Android. About 10 maps per fire. The grid squares
+printed on imported maps must stay readable for helicopter call-ins.
+
+---
+
 ## 1. Where we actually stand
 
 **Solid and verified in-browser:** offline PWA shell; KML/KMZ/GPX/zipped-SHP
@@ -144,20 +174,21 @@ What Avenza can actually hand you, and what we need for each:
 Avenza-to-Avenza AirDrop only works iOS-to-iOS with matching versions; it
 doesn't help us. Files reach our app through Files/email/Drive today.
 
-**Platform catch:** on iOS a PWA can't appear in the share sheet or as an
-"Open in…" target. Someone AirDrops a PDF, it lands in Files, then you
-import it in our app. On Android we can add a Web Share Target to the
-manifest now so "Share → Carmanah Maps" works. Proper iOS "Open in Carmanah
-Maps" needs the native wrap. This is the strongest argument for doing the
-Capacitor app sooner.
+**Receiving files:** in the crew app's store build, an AirDropped or emailed
+map can open straight in Carmanah once the app declares "Open in" document
+types (.pdf/.kmz/.kml/.gpx). That's a Phase D spec for the Carmanah App
+master. Until then, and on the website, the file goes to Files and is
+imported from there.
 
 ### Carmanah Maps → Avenza
 
 So crews can hand our data to people still on Avenza: KML/KMZ written the way
 Avenza reads it (`<Schema>`/`<SchemaData>` attributes, styles, photos in
 `files/`, a folder per layer), GPX for tracks, shapefile and GeoPackage
-exports for GIS shops. We don't make maps, so map export = re-sharing an
-imported original.
+exports for GIS shops. Maps go two ways: re-share an imported original (so
+keep it), or **"Send this area as a map"**, which generates a georeferenced PDF
+on the phone (basemap plus our layers drawn on) for Avenza to open. Both work
+offline over AirDrop and Quick Share through the crew app's Share plugin.
 
 ---
 
@@ -183,6 +214,29 @@ well.
 ## 5. Build order
 
 Each phase ships on its own. Sizes are rough relative effort.
+
+### Phase 0 — Foundations for the crew app (first)
+1. **Native storage spike** (M). Prove that MapLibre can draw tiles read back
+   from Capacitor Filesystem storage, offline, in the iOS simulator. Use a
+   dev-only Capacitor harness in this repo pinned to the crew app's
+   versions; don't touch the crew app's `mobile/`. Everything offline builds
+   on this.
+2. **Embedded build** (S). Build with base `/maps/` and no service worker,
+   write `precache-manifest.json`, bundle the label fonts (no remote
+   glyphs), and read `carmanah.mapsContext.v1` for call sign and fire number.
+3. **Storage layer** (L). One interface for tiles, packs, imported maps and
+   photos: OPFS/IndexedDB on the web, Filesystem in the app. Personal data is
+   namespaced per owner (see §0, shared phones); basemap packs are shared.
+   MapLibre reads tiles through a custom protocol, so the service-worker tile
+   cache goes.
+4. **Fire-sized offline packs** (L). A "download this fire" action sized from
+   the perimeter plus a buffer. Packs are hosted by us as region files, since
+   the free tile server caps a download at 3,000 tiles and a large fire needs
+   6,000–15,000 (about 0.2–0.6 GB).
+5. **Maps library** (M). Imported PDFs kept as originals and organised per
+   fire, rendered sharp at every zoom (tiled at import), and re-shareable.
+6. **Send to Avenza** (M). A georeferenced PDF of any area, plus KMZ layers,
+   through the Share plugin.
 
 ### Phase A — Interop (Nick's priority)
 1. **GeoPDF, done properly** (L). pdf-lib for real PDF object parsing; ISO 32000
@@ -216,10 +270,13 @@ lock orientation, GPS info panel, labels toggle, clustering, keep screen on,
 custom units incl. chains, BC Albers coordinates, OSM place search, dark
 style, coordinate-lag fix (do that one first — it's tiny).
 
-### Phase D — Native wrap (Capacitor)
-Background tracking and geofences, iOS "Open in…"/share-sheet target,
-direct Bluetooth GPS on Android, storage that iOS can't evict, App Store.
-Same codebase.
+### Phase D — Native capabilities (handed to the crew app)
+The store app itself is the crew app's Capacitor build (§0). We write specs
+for what the map needs and the Carmanah App master adds them under its
+review rules: background location for tracks and geofences, "Open in"
+document types (.pdf/.kmz/.kml/.gpx/.avenzasymbols), and direct Bluetooth
+GPS on Android. Each one changes the store review and privacy answers, so
+they ship in a store update after the Dec 15 launch.
 
 ### Not rebuilding
 Map Store, collections, what3words, British National Grid, Avenza accounts
@@ -254,3 +311,6 @@ Real Avenza exports, kept local in a gitignored folder — never committed
 4. Pro: **Maps + Layers → GeoPackage**.
 5. Optional: a **`.ambackup`** (contains all his Avenza data — local only).
 6. A newer **ArcGIS Pro** GeoPDF from BCWS, and a USGS/TerraGo topo if handy.
+7. **The aviation grid** (columns like IW/IX/IY…, rows ~126–145, used for
+   helicopter call-ins): is it a provincial standard BCWS publishes? With its
+   definition we can draw it on any map, not just imported PDFs.
