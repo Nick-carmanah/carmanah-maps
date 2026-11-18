@@ -143,8 +143,8 @@ needs the Capacitor wrap.
 | Navigation settings: visit each point in turn, arrival radius | ⬜ | yes | |
 | Geofences: features, map boundary, on import, enter/leave/both | 🟡 | partly | Foreground only in a PWA; background = Native |
 | External Bluetooth GPS (Bad Elf, Emlid, Trimble…) | ⬜ | partly | iOS: receivers that feed system location already work in our PWA. Android: mock-location apps work; direct Bluetooth = Native |
-| Coordinate formats incl. easting/northing in the map's projection | 🟡 | yes | Add BC Albers (EPSG:3005) — useful in BC. ➖ BNG, ➖ what3words (paid API) |
-| Units: per-metric custom incl. chains, nautical, mils | 🟡 | yes | Chains matter for BC forestry |
+| Coordinate formats incl. easting/northing in the map's projection | 🟡 | yes | BC Albers (EPSG:3005) done. Still missing: easting/northing in an imported map's own projection. ➖ BNG, ➖ what3words (paid API) |
+| Units: per-metric custom incl. chains, nautical, mils | ✅ | yes | Distance, area, coordinates, speed, angle (°/mils, true/magnetic via offline WMM2025), altitude, pace. One storage key, ready to go per-owner |
 | Display: theme, crosshair/selection/nav-line/location colours, haptics | 🟡 | yes | |
 | Map view: keep screen on, scale bar, zoom limits | 🟡 | yes | |
 | Notification centre | ➖ | | Toasts are enough for now |

@@ -1,13 +1,54 @@
-import type { Feature, FeatureCollection } from 'geojson'
+import type { Feature, FeatureCollection, Position } from 'geojson'
 import type { LngLatBounds } from 'maplibre-gl'
-import { fromUtm, toUtm } from './coords'
+import { fromBcAlbers, inBcAlbersArea, toBcAlbers } from './albers'
+import { fromUtm, toUtm, type CoordFormat } from './coords'
 
 /**
- * UTM grid overlay (the "grid lines" on agency fire maps). 1 km cells at
- * close zooms, 10 km when zoomed out; hidden when the view is too wide.
+ * Grid overlay (the "grid lines" on agency fire maps). 1 km cells at close
+ * zooms, 10 km when zoomed out; hidden when the view is too wide.
  * Cell labels use the MGRS-style 4-digit reference (easting km + northing km
  * within the 100 km square), e.g. "1265" — radio-friendly and international.
+ *
+ * The grid follows the coordinate setting: BC Albers coordinates get a BC
+ * Albers grid (inside BC); every other format keeps the UTM grid.
  */
+
+export type GridSystem = 'utm' | 'bcalbers'
+
+export function gridSystemFor(format: CoordFormat): GridSystem {
+  return format === 'bcalbers' ? 'bcalbers' : 'utm'
+}
+
+interface GridProjection {
+  forward(lat: number, lon: number): [number, number] | null
+  inverse(easting: number, northing: number): Position
+}
+
+function gridProjection(
+  system: GridSystem,
+  center: { lat: number; lng: number },
+): GridProjection | null {
+  if (system === 'bcalbers' && inBcAlbersArea([center.lng, center.lat])) {
+    return {
+      forward: (lat, lon) => {
+        const a = toBcAlbers(lat, lon)
+        return [a.easting, a.northing]
+      },
+      inverse: (e, n) => fromBcAlbers(e, n) ?? [NaN, NaN],
+    }
+  }
+  // Work in the center's UTM zone across the whole view.
+  const centerUtm = toUtm(center.lat, center.lng)
+  if (!centerUtm) return null
+  const { zone, band } = centerUtm
+  return {
+    forward: (lat, lon) => {
+      const u = toUtm(lat, lon, zone)
+      return u ? [u.easting, u.northing] : null
+    },
+    inverse: (e, n) => fromUtm({ zone, band, easting: e, northing: n }),
+  }
+}
 
 const EMPTY: FeatureCollection = { type: 'FeatureCollection', features: [] }
 
@@ -20,25 +61,23 @@ export function gridSpacingM(zoom: number): number | null {
 export function buildGrid(
   bounds: LngLatBounds,
   zoom: number,
+  system: GridSystem = 'utm',
 ): { lines: FeatureCollection; labels: FeatureCollection } {
   const spacing = gridSpacingM(zoom)
   if (!spacing) return { lines: EMPTY, labels: EMPTY }
 
-  const center = bounds.getCenter()
-  const centerUtm = toUtm(center.lat, center.lng)
-  if (!centerUtm) return { lines: EMPTY, labels: EMPTY }
-  const zone = centerUtm.zone
+  const proj = gridProjection(system, bounds.getCenter())
+  if (!proj) return { lines: EMPTY, labels: EMPTY }
 
-  // Work in the center's UTM zone across the whole view.
   const corners = [
-    toUtm(bounds.getSouth(), bounds.getWest(), zone),
-    toUtm(bounds.getSouth(), bounds.getEast(), zone),
-    toUtm(bounds.getNorth(), bounds.getWest(), zone),
-    toUtm(bounds.getNorth(), bounds.getEast(), zone),
+    proj.forward(bounds.getSouth(), bounds.getWest()),
+    proj.forward(bounds.getSouth(), bounds.getEast()),
+    proj.forward(bounds.getNorth(), bounds.getWest()),
+    proj.forward(bounds.getNorth(), bounds.getEast()),
   ]
   if (corners.some((c) => !c)) return { lines: EMPTY, labels: EMPTY }
-  const eastings = corners.map((c) => c!.easting)
-  const northings = corners.map((c) => c!.northing)
+  const eastings = corners.map((c) => c![0])
+  const northings = corners.map((c) => c![1])
   const minE = Math.floor(Math.min(...eastings) / spacing) * spacing
   const maxE = Math.ceil(Math.max(...eastings) / spacing) * spacing
   const minN = Math.floor(Math.min(...northings) / spacing) * spacing
@@ -48,8 +87,7 @@ export function buildGrid(
   const rows = (maxN - minN) / spacing
   if (cols > 60 || rows > 60) return { lines: EMPTY, labels: EMPTY }
 
-  const toLngLat = (e: number, n: number) =>
-    fromUtm({ zone, band: centerUtm.band, easting: e, northing: n })
+  const toLngLat = (e: number, n: number) => proj.inverse(e, n)
 
   const lines: Feature[] = []
   for (let e = minE; e <= maxE; e += spacing) {

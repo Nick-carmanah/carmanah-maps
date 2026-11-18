@@ -38,7 +38,12 @@ workflows, built to pair with the Carmanah Wildfire crew platform
 npm install
 npm run dev       # http://localhost:5173
 npm run build     # production build + service worker in dist/
+npm test          # unit tests (also run by the PR check)
 ```
+
+The GeoPDF tests (`test/geopdf.test.ts`) build synthetic GeoPDFs at test
+time, so no real field maps are ever committed. Add a fixture there for any
+new map layout before changing `src/lib/geopdf.ts`.
 
 `public/test-fire.kml` is a mock fire (perimeter, drop points, helispot,
 division break) near Lytton BC. Load it with:
