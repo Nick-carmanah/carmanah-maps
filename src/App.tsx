@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { Map as MlMap } from 'maplibre-gl'
 import MapView from './map/MapView'
 import LayerPanel from './components/LayerPanel'
 import LayerTree from './components/LayerTree'
 import LayerSheet from './components/LayerSheet'
 import ExportSheet from './components/ExportSheet'
 import QrScanner from './components/QrScanner'
+import SendAreaSheet from './components/SendAreaSheet'
+import { printableLayers } from './map/print-render'
 import FeatureSheet, { type PhotoThumb } from './components/FeatureSheet'
 import UnitsSettings from './components/UnitsSettings'
 import MapsLibrary from './components/MapsLibrary'
@@ -100,6 +103,8 @@ export default function App() {
   useUnitSettings()
   const [gridOn, setGridOn] = useState(() => localStorage.getItem('carmanah-grid') === '1')
   const [toolsOpen, setToolsOpen] = useState(false)
+  const [sendAreaOpen, setSendAreaOpen] = useState(false)
+  const [mainMap, setMainMap] = useState<MlMap | null>(null)
   const [layersOpen, setLayersOpen] = useState(false)
   const [basemap, setBasemap] = useState<'streets' | 'satellite'>(
     () => (localStorage.getItem('carmanah-basemap') as 'streets' | 'satellite') || 'streets',
@@ -109,6 +114,18 @@ export default function App() {
   const nav = useNavigation(navTarget, (m, e) => showToastRef.current(m, e))
   useGeofences(userFeatures, (m) => showToastRef.current(`⚠️ ${m}`, true))
   const [toast, setToast] = useState<Toast | null>(null)
+  const sendAreaLayers = useMemo(
+    () =>
+      sendAreaOpen
+        ? printableLayers({
+            layers,
+            features: userFeatures,
+            liveFires: liveEnabled ? liveData : null,
+            showLivePerimeters: livePerimeters,
+          })
+        : null,
+    [sendAreaOpen, layers, userFeatures, liveEnabled, liveData, livePerimeters],
+  )
   const [focusRequest, setFocusRequest] = useState<{
     id: string
     nonce: number
@@ -615,6 +632,7 @@ export default function App() {
             setEditingId(id)
           }}
           onNotify={showToast}
+          onMapReady={setMainMap}
           basemap={basemap}
           openSearchNonce={searchNonce}
         />
@@ -703,6 +721,16 @@ export default function App() {
           </div>
         )}
 
+        {sendAreaOpen && sendAreaLayers && (
+          <SendAreaSheet
+            map={mainMap}
+            layers={sendAreaLayers}
+            basemap={basemap}
+            onClose={() => setSendAreaOpen(false)}
+            onNotify={showToast}
+          />
+        )}
+
         {mapsOpen && (
           <div className="sheet-wrap">
             <div className="sheet-backdrop" onClick={() => setMapsOpen(false)} />
@@ -771,6 +799,15 @@ export default function App() {
                     action: () => fileInputRef.current?.click(),
                   },
                   {
+                    icon: '🗺',
+                    label: 'Send this area as a map',
+                    action: () => {
+                      setPinMode(false)
+                      setMeasuring(false)
+                      setSendAreaOpen(true)
+                    },
+                  },
+                  {
                     icon: '⚙️',
                     label: 'Profile and settings',
                     action: () => setSettingsOpen(true),
@@ -782,6 +819,7 @@ export default function App() {
                   className="tool-row"
                   onClick={() => {
                     setToolsOpen(false)
+                    setSendAreaOpen(false)
                     tool.action()
                   }}
                 >

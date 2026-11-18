@@ -27,7 +27,7 @@ const GLYPH_RANGES = ['0-255', '256-511', '768-1023', '8192-8447']
  * (…/planet/20261018_080001_pt/14/2602/5629.pbf). Cache tiles without it so
  * saved areas keep matching after the version rolls over — the service
  * worker's cacheKeyWillBeUsed in vite.config.ts strips it the same way. */
-function tileCacheKey(url: string): string {
+export function tileCacheKey(url: string): string {
   return url.replace(
     /^(https:\/\/tiles\.openfreemap\.org\/planet)\/[^/]+(\/\d+\/\d+\/\d+\.pbf)$/,
     '$1$2',

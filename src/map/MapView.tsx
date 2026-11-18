@@ -64,6 +64,8 @@ interface MapViewProps {
   onDropPin: (position: Position) => void
   onEditFeature: (id: string) => void
   onNotify: (message: string, isError?: boolean) => void
+  /** Hands out the map instance once it exists (null after it's removed). */
+  onMapReady?: (map: MlMap | null) => void
   basemap: 'streets' | 'satellite'
   /** Bump to open the coordinate search input (from the tools sheet). */
   openSearchNonce: number
@@ -86,6 +88,7 @@ export default function MapView({
   onDropPin,
   onEditFeature,
   onNotify,
+  onMapReady,
   basemap,
   openSearchNonce,
 }: MapViewProps) {
@@ -124,6 +127,8 @@ export default function MapView({
   onDropPinRef.current = onDropPin
   const onEditFeatureRef = useRef(onEditFeature)
   onEditFeatureRef.current = onEditFeature
+  const onMapReadyRef = useRef(onMapReady)
+  onMapReadyRef.current = onMapReady
   const [packProgress, setPackProgress] = useState<{ done: number; total: number } | null>(
     null,
   )
@@ -271,6 +276,7 @@ export default function MapView({
       attributionControl: { compact: true },
     })
     mapRef.current = map
+    onMapReadyRef.current?.(map)
     // Dev console access (harmless in prod, handy for debugging in the field too)
     ;(window as unknown as Record<string, unknown>).__map = map
     map.on('error', (e) => console.error('[map error]', e.error?.message ?? e))
@@ -397,6 +403,7 @@ export default function MapView({
 
     return () => {
       loadedRef.current = false
+      onMapReadyRef.current?.(null)
       map.remove()
       mapRef.current = null
       scaleRef.current = null
