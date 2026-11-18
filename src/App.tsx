@@ -215,7 +215,7 @@ export default function App() {
   const handlePdfImport = useCallback(
     async (file: File) => {
       const bytes = new Uint8Array(await file.arrayBuffer())
-      const regions = parseGeoPdfRegions(bytes)
+      const regions = await parseGeoPdfRegions(bytes)
       if (!regions.length) {
         showToast(
           `${file.name}: no embedded georeferencing found — this PDF can't be auto-placed`,

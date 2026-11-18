@@ -10,15 +10,15 @@ Legend: ✅ done · 🟡 partial · ⬜ todo · ➕ ours (no Avenza equivalent)
 
 | Feature | Avenza tier | Status | Notes |
 |---|---|---|---|
-| Offline maps | Free | ✅ | Save-offline view packs (z6–14) + SW tile cache |
-| Basemap layers (satellite) | Plus | ✅ | Esri World Imagery toggle; hillshade stays on top; cached offline by SW |
+| Offline maps | Free | ✅ | Save-offline view packs (z6–14 vector basemap + terrain, sharp at any zoom) + SW tile cache |
+| Basemap layers (satellite) | Plus | ✅ | OSM-style OpenFreeMap vector basemap ↔ Esri World Imagery toggle; hillshade stays on top; cached offline by SW |
 | 3D terrain / hillshade | — | ➕ ✅ | Beyond Avenza — terrain toggle + hillshade |
 | Map store / catalogue | Free | ⬜ | Our version: curated wildfire map-pack library (PMTiles regions) |
 | Organize maps in folders/collections | Free | ✅ | Auto-layers: features group by symbol/track type (Danger trees, Guards, Patrols…); manual override in sheet |
 | Import KML/KMZ | Free | ✅ | Button, drag-drop, QR scan, ?kml= deep link |
 | Import GPX | Free | ✅ | Same import path as KML |
 | Import GeoTIFF | Pro (unlimited) | ⬜ | Client-side: geotiff.js → canvas source; large files need server tiling |
-| Import geospatial PDF / GeoPDF | Pro (unlimited) | ✅ | Client-side only, no GDAL/server needed: files with embedded ISO-32000 georeferencing (ArcGIS/ArcMap "include georeference info" exports) parse GCPs from the raw PDF, render via pdf.js, crop to the map region, and drape as a MapLibre image quad. Verified against a real BCWS thermal-scan hotspot map — road alignment matched OSM exactly. Plain/scanned PDFs with no embedded geo data still need the server-GDAL path (rare in practice — most agency map exports carry it) |
+| Import geospatial PDF / GeoPDF | Pro (unlimited) | ✅ | Client-side only, no GDAL/server needed: files with embedded ISO-32000 georeferencing (ArcGIS/ArcMap "include georeference info" exports) parse GCPs with pdf-lib (any key order, compressed object streams, Acrobat re-saves), render via pdf.js, crop to the map region, and drape as a MapLibre image quad. Verified 2026-11-17 on a BCWS thermal-scan hotspot map (ArcMap 10.8), a fuel-treatment unit map (ArcMap 10.7 re-saved in Acrobat), and an object-stream-compressed copy: upright labels, road intersections match OSM, image tilt matches each projection's grid convergence. NB: imports made before this fix (July–Nov 2026) render upside-down — re-import them. Still todo: TerraGo LGIDict, crisp tiled rendering, keep original for re-share. Plain/scanned PDFs with no embedded geo data still need the server-GDAL path (rare in practice — most agency map exports carry it) |
 | Import JPG + reference file | Pro | ⬜ | Low priority |
 | Shapefile import | Pro | ✅ | Zipped .shp via shpjs (lazy-loaded); attributes preserved; uppercase NAME shown in popups |
 | Layer visibility management | Free | ✅ | Layer panel show/hide |

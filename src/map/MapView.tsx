@@ -34,49 +34,7 @@ import {
   estimateTileCount,
   MAX_TILES,
 } from '../lib/mappacks'
-
-// Free, cache-friendly sources: OSM raster basemap + AWS open elevation tiles
-// (terrarium encoding) for 3D terrain and hillshade.
-const MAP_STYLE: maplibregl.StyleSpecification = {
-  version: 8,
-  glyphs: 'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
-  sources: {
-    osm: {
-      type: 'raster',
-      tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-      tileSize: 256,
-      maxzoom: 19,
-      attribution: '© OpenStreetMap contributors',
-    },
-    satellite: {
-      type: 'raster',
-      tiles: [
-        'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-      ],
-      tileSize: 256,
-      maxzoom: 19,
-      attribution: 'Imagery: Esri, Maxar, Earthstar Geographics',
-    },
-    terrain: {
-      type: 'raster-dem',
-      tiles: ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],
-      encoding: 'terrarium',
-      tileSize: 256,
-      maxzoom: 14,
-      attribution: 'Terrain: Mapzen/AWS Open Data',
-    },
-  },
-  layers: [
-    { id: 'osm', type: 'raster', source: 'osm' },
-    { id: 'satellite', type: 'raster', source: 'satellite', layout: { visibility: 'none' } },
-    {
-      id: 'hillshade',
-      type: 'hillshade',
-      source: 'terrain',
-      paint: { 'hillshade-exaggeration': 0.35 },
-    },
-  ],
-}
+import { BASEMAP_LAYER_IDS, MAP_STYLE } from './basemap'
 
 const DEFAULT_STROKE = '#e11d1d'
 const DEFAULT_FILL = '#e11d1d'
@@ -189,12 +147,7 @@ export default function MapView({
   useEffect(() => {
     const map = mapRef.current
     if (!map || !loadedRef.current) return
-    map.setLayoutProperty('osm', 'visibility', basemap === 'streets' ? 'visible' : 'none')
-    map.setLayoutProperty(
-      'satellite',
-      'visibility',
-      basemap === 'satellite' ? 'visible' : 'none',
-    )
+    showBasemap(map, basemap)
   }, [basemap])
 
   // Tools sheet → "Find by coordinates" opens the search pill.
@@ -410,10 +363,7 @@ export default function MapView({
         map.setLayoutProperty('live-perim-fill', 'visibility', 'none')
         map.setLayoutProperty('live-perim-line', 'visibility', 'none')
       }
-      if (basemapRef.current === 'satellite') {
-        map.setLayoutProperty('osm', 'visibility', 'none')
-        map.setLayoutProperty('satellite', 'visibility', 'visible')
-      }
+      if (basemapRef.current === 'satellite') showBasemap(map, 'satellite')
       setUserFeatureData(map, userFeaturesRef.current, hiddenLayersRef.current)
       ;(map.getSource('fences') as maplibregl.GeoJSONSource | undefined)?.setData(
         fenceShapes(userFeaturesRef.current),
@@ -904,6 +854,12 @@ function setUserFeatureData(map: MlMap, features: UserFeature[], hiddenLayers: S
   source?.setData(
     featuresToGeoJSON(features.filter((f) => !hiddenLayers.has(featureLayer(f)))),
   )
+}
+
+function showBasemap(map: MlMap, basemap: 'streets' | 'satellite') {
+  const streets = basemap === 'streets' ? 'visible' : 'none'
+  for (const id of BASEMAP_LAYER_IDS) map.setLayoutProperty(id, 'visibility', streets)
+  map.setLayoutProperty('satellite', 'visibility', basemap === 'satellite' ? 'visible' : 'none')
 }
 
 /** Georeferenced raster imports (GeoPDF crops) render below everything
