@@ -357,12 +357,25 @@ export async function measure(source: ByteSource, area: PackArea, basemapZooms: 
     const n = 2 ** z
     const step = Math.max(1, Math.floor(keys.length / sample))
     const picks = keys.filter((_, i) => i % step === 0).slice(0, sample)
-    const sizes = await Promise.all(
-      picks.map(async (k) => {
-        const res = await fetch(AWS_TERRAIN(z, Math.floor(k / n), k % n), { method: 'HEAD', headers: { 'User-Agent': USER_AGENT } })
-        return Number(res.headers.get('content-length') ?? 0)
-      }),
-    )
+    const sizes: number[] = []
+    // A few at a time: hundreds of HEADs at once get connections reset.
+    for (let i = 0; i < picks.length; i += 16) {
+      sizes.push(
+        ...(await Promise.all(
+          picks.slice(i, i + 16).map(async (k) => {
+            for (let attempt = 0; ; attempt++) {
+              try {
+                const res = await fetch(AWS_TERRAIN(z, Math.floor(k / n), k % n), { method: 'HEAD', headers: { 'User-Agent': USER_AGENT } })
+                return Number(res.headers.get('content-length') ?? 0)
+              } catch (err) {
+                if (attempt >= 3) throw err
+                await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt))
+              }
+            }
+          }),
+        )),
+      )
+    }
     estimate += (sizes.reduce((a, b) => a + b, 0) / Math.max(1, sizes.length)) * keys.length
   }
   return {
