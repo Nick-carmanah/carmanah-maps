@@ -1,5 +1,6 @@
 import type { LngLatBounds } from 'maplibre-gl'
-import { SATELLITE_TILE_URL, TILEJSON_URL } from '../map/basemap'
+import { TILEJSON_URL } from '../map/basemap'
+import { ESRI_IMAGERY_TILE_URL } from '../map/satellite-source'
 
 // Tiles are stored in the same Cache Storage bucket the service worker's
 // CacheFirst handler reads from ('map-tiles'), so anything downloaded here is
@@ -100,8 +101,8 @@ export function packUrls(bounds: LngLatBounds, basemapTiles: string): string[] {
   return urlsForBounds(bounds, basemapTiles)
 }
 
-/** Satellite tiles start with this (Esri World Imagery's own host). */
-export const SATELLITE_HOST = new URL(SATELLITE_TILE_URL).origin + '/'
+/** Esri World Imagery's host: tiles from it may not be kept offline. */
+export const SATELLITE_HOST = new URL(ESRI_IMAGERY_TILE_URL).origin + '/'
 
 const PURGED_KEY = 'carmanah-satellite-tiles-removed'
 

@@ -1,11 +1,18 @@
-import { SATELLITE_TILE_URL } from '../map/basemap'
+import {
+  checkSentinelFile,
+  ESRI_IMAGERY_TILE_URL,
+  initialSatelliteKind,
+  type SatelliteKind,
+} from '../map/satellite-source'
 
 /**
  * Satellite imagery needs signal. Esri's terms for World Imagery don't allow
  * keeping its tiles on the phone (docs/satellite-imagery-options.md), so the
  * service worker doesn't cache them and Save offline doesn't download them.
- * Without signal the map shows streets instead of blank tiles, and the layers
- * sheet says satellite needs signal.
+ * Our own Sentinel-2 file (src/map/satellite-source.ts) is read over the
+ * network too until satellite is added to saved areas. Without signal the
+ * map shows streets instead of blank tiles, and the layers sheet says
+ * satellite needs signal.
  *
  * "No signal" is either the phone saying it's offline, or several satellite
  * tiles failing in a row: Wi-Fi with no internet behind it (a camp hotspot,
@@ -51,6 +58,11 @@ export class SatelliteSignal {
     this.setFailures(this.failures + 1)
   }
 
+  /** The imagery source itself couldn't load (no answer at all): no signal. */
+  sourceFailed(): void {
+    this.setFailures(Math.max(this.failures, FAILURES_FOR_NO_SIGNAL))
+  }
+
   /** The phone went online or offline: start afresh. */
   networkChanged(): void {
     this.failures = 0
@@ -81,11 +93,20 @@ export class SatelliteSignal {
   }
 }
 
+let kind: SatelliteKind = initialSatelliteKind()
+
+/** Which imagery the map is using (MapView switches to Esri if our
+ * Sentinel-2 file isn't uploaded yet), so a recheck probes the right one. */
+export function setSatelliteKind(next: SatelliteKind): void {
+  kind = next
+}
+
 async function probeSatellite(): Promise<boolean> {
+  if (kind === 'sentinel') return (await checkSentinelFile()) === 'ok'
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), 5000)
   try {
-    const url = SATELLITE_TILE_URL.replace('{z}', '0').replace('{x}', '0').replace('{y}', '0')
+    const url = ESRI_IMAGERY_TILE_URL.replace('{z}', '0').replace('{x}', '0').replace('{y}', '0')
     return (await fetch(url, { cache: 'no-store', signal: controller.signal })).ok
   } catch {
     return false

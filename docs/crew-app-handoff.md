@@ -17,6 +17,17 @@ npm ci
 npm run build:embedded
 ```
 
+**Satellite imagery.** Once our Sentinel-2 file is on R2, give its public
+URL to the build:
+
+```bash
+VITE_SATELLITE_PMTILES_URL=https://<bucket address>/imagery/s2-quarterly/bc/2026-q3.pmtiles npm run build:embedded
+```
+
+Without it, satellite is Esri World Imagery, online only
+(`src/map/satellite-source.ts`, `scripts/imagery/README.md`). Use the same
+URL as the website's `.github/workflows/deploy.yml`.
+
 The output is `dist-embedded/`. It differs from the website build
 (`npm run build`) in these ways only:
 

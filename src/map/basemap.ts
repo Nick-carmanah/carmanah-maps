@@ -1,5 +1,6 @@
 import type maplibregl from 'maplibre-gl'
 import libertyStyle from './openfreemap-liberty.json'
+import { initialSatelliteKind, satelliteSource } from './satellite-source'
 
 // Basemap: OpenFreeMap's "Liberty" style over OpenFreeMap vector tiles —
 // free, no API key, commercial use and offline downloads allowed
@@ -95,12 +96,6 @@ export const MAP_FONTSTACKS = [
   ]),
 ]
 
-/** Esri World Imagery. Online only: its terms allow offline use only inside
- * Esri software, so the service worker doesn't cache these tiles and Save
- * offline doesn't download them (see src/lib/satellite-signal.ts). */
-export const SATELLITE_TILE_URL =
-  'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
-
 // Satellite sits right above the background; the hillshade goes over the land
 // fills but under water, roads and labels.
 const [background, ...rest] = BASE_LAYERS
@@ -112,13 +107,9 @@ export const MAP_STYLE: maplibregl.StyleSpecification = {
   sprite: SPRITE_URL,
   sources: {
     openmaptiles: { type: 'vector', url: TILEJSON_URL },
-    satellite: {
-      type: 'raster',
-      tiles: [SATELLITE_TILE_URL],
-      tileSize: 256,
-      maxzoom: 19,
-      attribution: 'Imagery: Esri, Vantor, Earthstar Geographics, and the GIS User Community',
-    },
+    // Our own Sentinel-2 PMTiles when configured, else Esri online only
+    // (src/map/satellite-source.ts).
+    satellite: satelliteSource(initialSatelliteKind()),
     // AWS open elevation tiles (terrarium encoding) for 3D terrain and hillshade.
     terrain: {
       type: 'raster-dem',

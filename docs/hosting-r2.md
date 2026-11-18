@@ -23,7 +23,7 @@ bucket with `Range` requests.
 |---|---|---|
 | Vector basemap (roads, water, labels…) | OpenFreeMap's **weekly full-planet PMTiles**, `https://btrfs.openfreemap.com/areas/planet/<build>/tiles.pmtiles` (list: [files.txt](https://btrfs.openfreemap.com/files.txt)) | OpenFreeMap publishes these so people can take them elsewhere: "We also provide weekly full planet downloads both in Btrfs, MBTiles and PMTiles formats … allowing you to use the processed planet tiles with any other tool of your choice" ([README](https://github.com/hyperknot/openfreemap#readme)). The 3,000-tile cap and the ban on automated collection in the [terms](https://openfreemap.org/tos/) are about their tile server (`tiles.openfreemap.org`), which we stop using for big areas. The data is © OpenStreetMap contributors under the **ODbL**, tile schema © OpenMapTiles (**CC BY 4.0**). Attribution required: "© OpenMapTiles" and "Data from OpenStreetMap" (README, "Attribution"). Our copies are unchanged ODbL extracts, so we offer them under the ODbL too (`LICENSE.txt` in the bucket says so). |
 | Terrain (hillshade, elevation) | [Terrain Tiles on AWS](https://registry.opendata.aws/terrain-tiles/), Terrarium PNG, `https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png` | AWS Open Data, free to fetch. Licence depends on the source behind each area; in BC that's mainly Canada's CDEM (**Open Government Licence – Canada**) plus SRTM/GMTED (USGS, public domain, credit asked). Credits: [attribution.md](https://github.com/tilezen/joerd/blob/master/docs/attribution.md). |
-| Satellite imagery | **Reserved** (`imagery/`) for the satellite work ([options](satellite-imagery-options.md)) | Per product; given in `catalog.json`. |
+| Satellite imagery | Copernicus Sentinel-2 quarterly cloud-free mosaics, built into one BC file by `scripts/imagery/` ([README](../scripts/imagery/README.md), [options](satellite-imagery-options.md)) | Copernicus Sentinel data: free, full and open, commercial use included. Credit required: "Contains modified Copernicus Sentinel data <year>". Given per file in `catalog.json` and in the file's metadata. |
 
 The app already shows these credits on the map (MapLibre's attribution
 button). `scripts/packs/bucket-LICENSE.txt` is uploaded to the bucket as
@@ -48,7 +48,8 @@ Above that: $0.015/GB-month, $4.50 per million writes, $0.36 per million reads.
 | One fire download from a phone | ~50–150 range reads | each read = 1 Class B operation |
 
 Basemap and terrain for all of BC fit in the free 10 GB with room to spare.
-Satellite imagery for BC (10–20 GB) would add about $0.15–0.30 a month.
+Satellite imagery for BC (Sentinel-2 to z13, ~1.5–2 GB a quarter) fits in
+the free 10 GB as well.
 10 million free reads is ~70,000 fire downloads a month.
 
 ---
@@ -69,8 +70,9 @@ terrain/<area>/<version>.pmtiles      area-wide terrain archive, e.g. terrain/bc
 packs/<packId>/pack.json              a ready-made pack: manifest with sha256 per file
 packs/<packId>/basemap.pmtiles
 packs/<packId>/terrain.pmtiles
-imagery/…                             RESERVED for satellite imagery (another workstream):
-                                      imagery/<product>/<area>/<period>.pmtiles, e.g. imagery/s2/bc/2026q3.pmtiles
+imagery/<product>/<area>/<period>.pmtiles
+                                      satellite imagery (scripts/imagery), e.g.
+                                      imagery/s2-quarterly/bc/2026-q3.pmtiles; listed in catalog.json "sources.imagery"
 ```
 
 Upload headers (set by `scripts/packs/upload.ts` from `scripts/packs/layout.ts`):

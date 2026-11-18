@@ -1,0 +1,17 @@
+{
+  "name": "carmanah-maps-imagery",
+  "private": true,
+  "type": "module",
+  "description": "Builds our own satellite basemap (Copernicus Sentinel-2) as PMTiles. Not part of the app bundle.",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "build": "node build-satellite.ts",
+    "estimate": "node build-satellite.ts --estimate"
+  },
+  "dependencies": {
+    "geotiff": "3.0.5",
+    "sharp": "0.35.5"
+  }
+}
