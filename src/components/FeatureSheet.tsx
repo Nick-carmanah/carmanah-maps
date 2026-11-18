@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
+import type { Position } from 'geojson'
 import {
   FEATURE_COLORS,
   FIRE_SYMBOLS,
-  featureStat,
+  featureDetails,
   KIND_ICONS,
   type UserFeature,
 } from '../lib/features'
+import { elevationAt } from '../lib/elevation'
 import { DEFAULT_FENCE_RADIUS_M } from '../lib/fences'
 import {
   attrValueValid,
@@ -15,6 +17,8 @@ import {
   type AttrField,
   type Layer,
 } from '../lib/layers'
+import { formatAltitude, inputDistanceUnit } from '../lib/units'
+import { useUnitSettings } from '../hooks/useUnitSettings'
 import { buildConventionName, TRACK_TYPES } from '../lib/naming'
 import { NWCG_SYMBOLS, nwcgIconUrl } from '../lib/nwcg'
 import { getIcon } from '../lib/store'
@@ -82,6 +86,25 @@ export default function FeatureSheet({
   const schema = layer?.schema ?? []
   const schemaNames = new Set(schema.map((f) => f.name))
   const attributes = feature.attributes ?? []
+
+  // Numbers follow the unit settings; re-render when they change.
+  useUnitSettings()
+  const radiusUnit = inputDistanceUnit()
+  const radiusM = feature.geofence?.radiusM ?? DEFAULT_FENCE_RADIUS_M
+  const radiusStep = radiusUnit.label === 'm' ? 50 : radiusUnit.label === 'ft' ? 100 : 1
+
+  // Pin elevation from the terrain tiles (works offline in a saved area).
+  const pinKey = feature.kind === 'pin' ? (feature.coordinates as Position).join(',') : ''
+  const [elevation, setElevation] = useState<number | null>(null)
+  useEffect(() => {
+    setElevation(null)
+    if (!pinKey) return
+    let live = true
+    elevationAt(pinKey.split(',').map(Number)).then((m) => live && setElevation(m))
+    return () => {
+      live = false
+    }
+  }, [pinKey])
   const setAttr = (i: number, patch: Partial<{ k: string; v: string }>) =>
     update({ attributes: attributes.map((a, j) => (j === i ? { ...a, ...patch } : a)) })
   const schemaValue = (name: string) => attributes.find((a) => a.k === name)?.v ?? ''
@@ -117,7 +140,14 @@ export default function FeatureSheet({
         </button>
       </div>
       <div className="sheet-scroll">
-        <div className="sheet-stat">{featureStat(feature)}</div>
+        <div className="sheet-stat">
+          {[
+            ...featureDetails(feature),
+            elevation != null ? `elev ${formatAltitude(elevation)}` : null,
+          ]
+            .filter(Boolean)
+            .join(' · ')}
+        </div>
         <textarea
           className="notes-input"
           value={feature.notes}
@@ -272,16 +302,19 @@ export default function FeatureSheet({
             <span className="fence-radius">
               <input
                 type="number"
-                min={50}
-                step={50}
-                value={feature.geofence?.radiusM ?? DEFAULT_FENCE_RADIUS_M}
+                min={Math.ceil(50 / radiusUnit.meters)}
+                step={radiusStep}
+                value={Math.round(radiusM / radiusUnit.meters)}
                 onChange={(e) =>
                   update({
-                    geofence: { enabled: true, radiusM: Math.max(50, Number(e.target.value)) },
+                    geofence: {
+                      enabled: true,
+                      radiusM: Math.max(50, Number(e.target.value) * radiusUnit.meters),
+                    },
                   })
                 }
               />
-              m radius
+              {radiusUnit.label} radius
             </span>
           )}
         </div>

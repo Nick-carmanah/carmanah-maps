@@ -1,5 +1,13 @@
 import type { Feature, FeatureCollection, Position } from 'geojson'
-import { formatArea, formatDistance, pathLengthMeters, ringAreaSqMeters } from './measure'
+import { formatCoord } from './coords'
+import { pathLengthMeters, ringAreaSqMeters } from './measure'
+import {
+  formatArea,
+  formatDistance,
+  formatPace,
+  formatSpeed,
+  getUnitSettings,
+} from './units'
 
 /** A map object in My Data: dropped pin, drawn line or area, recorded
  * track, or anything imported (KML/KMZ, GPX, shapefile, CSV). Every feature
@@ -168,14 +176,31 @@ export function featuresToGeoJSON(features: UserFeature[]): FeatureCollection {
   }
 }
 
-/** "1.24 km" for lines, "515 ha" for areas, coordinates for pins. */
+/** "1.24 km" for lines, "515 ha" for areas, coordinates for pins — in the chosen units. */
 export function featureStat(f: UserFeature): string {
-  if (f.kind === 'pin') {
-    const [lng, lat] = f.coordinates as Position
-    return `${lat.toFixed(5)}, ${lng.toFixed(5)}`
-  }
+  if (f.kind === 'pin') return formatCoord(f.coordinates as Position, getUnitSettings().coords)
   const pts = f.coordinates as Position[]
   if (f.kind === 'line') return formatDistance(pathLengthMeters(pts))
   const holes = (f.holes ?? []).reduce((sum, h) => sum + ringAreaSqMeters(h), 0)
   return formatArea(Math.max(0, ringAreaSqMeters(pts) - holes))
+}
+
+/** The feature sheet's numbers: featureStat plus perimeter, or a track's time, speed and pace. */
+export function featureDetails(f: UserFeature): string[] {
+  const out = [featureStat(f)]
+  if (f.kind === 'area') {
+    const ring = f.coordinates as Position[]
+    out.push(`perimeter ${formatDistance(pathLengthMeters([...ring, ring[0]]))}`)
+  }
+  const times = f.times
+  if (f.kind === 'line' && times && times.length >= 2) {
+    const durationMs = times[times.length - 1] - times[0]
+    const meters = pathLengthMeters(f.coordinates as Position[])
+    if (durationMs > 0) {
+      out.push(`avg ${formatSpeed(meters / (durationMs / 1000))}`)
+      const pace = formatPace(durationMs, meters)
+      if (pace) out.push(pace)
+    }
+  }
+  return out
 }

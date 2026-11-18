@@ -30,15 +30,15 @@ Legend: ✅ done · 🟡 partial · ⬜ todo · ➕ ours (no Avenza equivalent)
 | Real-time GPS position on map | Free | ✅ | Geolocate control w/ tracking |
 | Record GPS tracks (distance/time/speed/elevation) | Free | ✅ | Foreground recording w/ wake lock, live stats chip; background tracking needs Capacitor (v2) |
 | Convert tracks to areas | Pro | ✅ | Save-as-area in the stop/review step |
-| Navigation/path tools (navigate to placemark: bearing, distance, ETA) | Free | ✅ | Navigate from feature sheet: live distance/bearing/ETA chip + dashed guidance line |
+| Navigation/path tools (navigate to placemark: bearing, distance, ETA) | Free | ✅ | Navigate from feature sheet: live distance/bearing/ETA/speed chip + dashed guidance line; bearings in °/mils, true or magnetic (offline WMM2025) |
 | Map rotation & compass | Free | 🟡 | Rotation works (drag/ctrl); needs device-compass north-up toggle on mobile |
 | Map orientation lock | Pro | ⬜ | Lock north-up / track-up |
-| Coordinate search (go to coordinates) | Free | ✅ | Pill accepts DD, DMS, UTM, MGRS; flies + drops marker |
+| Coordinate search (go to coordinates) | Free | ✅ | Accepts DD, DDM, DMS (symbols or spaces, hemisphere before/after, signed), UTM (with or without band), MGRS and BC Albers, whatever the display setting; flies + drops marker |
 | Map feature search (POI) | Free | ✅ | Universal search: My Data + imported KML features + live fires; dropdown for multi-match. Place-name gazetteer later |
-| Coordinate formats: DD/DMS/UTM | Free | ✅ | Live center readout w/ crosshair; DDM default (BCWS standard), cycles DD/DDM/DMS/UTM/MGRS, persisted |
+| Coordinate formats: DD/DMS/UTM | Free | ✅ | Live center readout w/ crosshair; DDM default (BCWS standard), DD/DDM/DMS/UTM/MGRS/BC Albers (EPSG:3005), set in ⚙ or cycled on the pill |
 | MGRS / BNG grids | Pro | ✅ | MGRS done (UTM math verified ±1 m vs mgrs lib); BNG skipped (UK-only) |
 | what3words | Free | ⬜ | Optional; API-based, defer |
-| Measurement units switching | Free | ✅ | Metric (m/km/ha) ↔ imperial (ft/mi/ac) in ⚙ settings; converts all readouts + scale bar |
+| Measurement units switching | Free | ✅ | Avenza-style per-metric units in ⚙: distance (metric/imperial/nautical/chains), area (ha/m²/km²/ac/mi²), coordinates, speed (km/h/mph/kn/m/s), angle (°/mils, true/magnetic north via offline WMM2025), altitude (m/ft), pace (min/km, min/mi). Applies to readout, measure, tracks, navigation, feature sheet (incl. pin elevation from terrain tiles), grid and scale bar |
 
 ## Plotting & data collection
 
@@ -71,7 +71,7 @@ Legend: ✅ done · 🟡 partial · ⬜ todo · ➕ ours (no Avenza equivalent)
 | Feature | Status | Notes |
 |---|---|---|
 | Live BCWS fire points + perimeters, status-colored, offline-cached w/ age | ✅ | |
-| UTM grid overlay (1 km / 10 km) with MGRS cell refs, toggleable | ➕ ✅ | International standard; BCWS lettered ops-grid labels possible if spec found |
+| Grid overlay (1 km / 10 km) with MGRS-style cell refs, toggleable; UTM, or BC Albers when coordinates are set to BC Albers | ➕ ✅ | International standard; BCWS lettered ops-grid labels possible if spec found |
 | Auto-layers by feature type + per-layer sharing | ➕ ✅ | The danger-tree-assessor → faller workflow |
 | QR scan → fire KML in one step | ✅ | Camera needs real-device test |
 | NASA FIRMS hotspots | ⬜ | v1.5 |

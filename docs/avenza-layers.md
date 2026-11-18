@@ -195,8 +195,22 @@ Color, Created, then one column per attribute.
 
 ## How it was verified
 
-A browser harness (gitignored, `samples/layers-harness/`; a copy is in the
-session notes folder) runs against the real modules on the dev server:
+`npm test` (and so the PR check) runs these as Vitest tests under `test/`,
+on synthetic fixtures (`test/fixtures/layers.ts`), with jsdom for the XML
+parser and fake-indexeddb for storage:
+
+- `kml-import.test.ts`: Avenza-style KMZ and Google Earth-style KML, KMZ
+  photos from `images/` and `files/`, custom icons, zipped shapefiles.
+- `layers-roundtrip.test.ts`: export → import through KMZ, KML, GPX and CSV;
+  the written schema uses Avenza's type names and picklists; togeojson reads
+  our KML; the visible-features read API.
+- `csv-import.test.ts`: latitude/longitude detection across delimiters,
+  decimal commas, column names, DMS, WKT, MGRS, UTM and our old CSV.
+- `layers-migration.test.ts` (`planMigration`) and
+  `layers-migration-db.test.ts` (a seeded v5 IndexedDB upgraded and migrated
+  by the real storage code).
+
+They cover what the original browser harness checked:
 
 - Avenza-style KMZ import: folder tree, typed schema and picklists (empty
   picklists ignored), folder default style, notes from `Description`,
