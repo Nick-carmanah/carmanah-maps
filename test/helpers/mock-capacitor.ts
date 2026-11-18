@@ -134,6 +134,21 @@ export function mockCapacitor(opts: { rangeMode?: RangeMode; how?: 'plugins' | '
       record('getUri', o)
       return { uri: `file://${ROOT}/${String(o.path)}` }
     },
+    async readdir(o: Record<string, unknown>) {
+      record('readdir', o)
+      const k = key(o)
+      if (!isDir(k)) throw notFound('readdir', String(o.path))
+      const names = new Set<string>()
+      for (const f of files.keys()) if (f.startsWith(`${k}/`)) names.add(f.slice(k.length + 1).split('/')[0])
+      for (const d of dirs) if (d.startsWith(`${k}/`)) names.add(d.slice(k.length + 1).split('/')[0])
+      return {
+        files: [...names].map((name) => ({
+          name,
+          type: files.has(`${k}/${name}`) ? 'file' : 'directory',
+          size: files.get(`${k}/${name}`)?.length ?? 0,
+        })),
+      }
+    },
   }
 
   const fileForUrl = (url: string) => {

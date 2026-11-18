@@ -50,6 +50,12 @@ export interface FileStore {
   remove(path: string): Promise<void>
   /** Delete a folder and everything in it. Not an error if it's already gone. */
   removeDir(path: string): Promise<void>
+  /** Add bytes to the end of a file, creating it if needed. Returns the new size. */
+  append(path: string, bytes: Uint8Array): Promise<number>
+  /** Rename a file within the store, replacing any file at `to`. */
+  rename(from: string, to: string): Promise<void>
+  /** Names in a folder ('' = the store's own folder), files and folders alike; [] if there's no such folder. */
+  list(dir: string): Promise<string[]>
 }
 
 const SEGMENT_RE = /^[A-Za-z0-9._-]+$/
@@ -172,6 +178,54 @@ class OpfsFileStore implements FileStore {
       if (err.name !== 'NotFoundError') throw err
     })
   }
+
+  async append(path: string, bytes: Uint8Array): Promise<number> {
+    const segments = pathSegments(path)
+    this.snapshots.delete(path)
+    const dir = (await this.dir(segments.slice(0, -1), true))!
+    const handle = await dir.getFileHandle(segments.at(-1)!, { create: true })
+    const size = (await handle.getFile()).size
+    // keepExistingData copies the file first in some browsers; callers append
+    // in megabyte-sized pieces, so that stays cheap for pack-sized files.
+    const stream = await handle.createWritable({ keepExistingData: true })
+    try {
+      await stream.seek(size)
+      await stream.write(bytes as FileSystemWriteChunkType)
+      await stream.close()
+    } catch (err) {
+      await stream.abort().catch(() => {})
+      throw err
+    }
+    return size + bytes.length
+  }
+
+  async rename(from: string, to: string): Promise<void> {
+    const src = pathSegments(from)
+    const dest = pathSegments(to)
+    this.snapshots.delete(from)
+    this.snapshots.delete(to)
+    const fromDir = await this.dir(src.slice(0, -1), false)
+    if (!fromDir) throw new MissingFileError(from)
+    const handle = await fromDir.getFileHandle(src.at(-1)!).catch(() => null)
+    if (!handle) throw new MissingFileError(from)
+    const toDir = (await this.dir(dest.slice(0, -1), true))!
+    await toDir.removeEntry(dest.at(-1)!).catch(() => {})
+    const move = (handle as unknown as { move?: (dir: FileSystemDirectoryHandle, name: string) => Promise<void> }).move
+    if (typeof move === 'function') {
+      await move.call(handle, toDir, dest.at(-1)!)
+      return
+    }
+    await this.write(to, [await handle.getFile()])
+    await this.remove(from)
+  }
+
+  async list(dir: string): Promise<string[]> {
+    const handle = dir ? await this.dir(pathSegments(dir), false) : this.root
+    if (!handle) return []
+    const names: string[] = []
+    for await (const name of (handle as unknown as { keys(): AsyncIterable<string> }).keys()) names.push(name)
+    return names.sort()
+  }
 }
 
 /** Can this browser write OPFS files from the page? Checked once per owner. */
@@ -243,6 +297,24 @@ class IdbFileStore implements FileStore {
     const prefix = `${path}/`
     for (const key of this.blobs.keys()) if (key.startsWith(prefix)) this.blobs.delete(key)
     await (await this.db()).delete('files', IDBKeyRange.bound(prefix, `${prefix}￿`))
+  }
+
+  async append(path: string, bytes: Uint8Array): Promise<number> {
+    const old = await this.read(path)
+    return this.write(path, old ? [old, bytes as BlobPart] : [bytes as BlobPart])
+  }
+
+  async rename(from: string, to: string): Promise<void> {
+    const blob = await this.read(from)
+    if (!blob) throw new MissingFileError(from)
+    await this.write(to, [blob])
+    await this.remove(from)
+  }
+
+  async list(dir: string): Promise<string[]> {
+    const prefix = dir ? `${pathSegments(dir).join('/')}/` : ''
+    const keys = (await (await this.db()).getAllKeys('files', prefix ? IDBKeyRange.bound(prefix, `${prefix}￿`) : undefined)) as string[]
+    return [...new Set(keys.map((k) => k.slice(prefix.length).split('/')[0]))].sort()
   }
 }
 
@@ -328,8 +400,8 @@ class NativeFileStore implements FileStore {
     readonly root: string,
   ) {}
 
-  static async open(cap: CapacitorGlobal, fs: FilesystemPlugin, ownerId: string): Promise<NativeFileStore> {
-    const store = new NativeFileStore(fs, cap, `${FILES_ROOT}/${ownerId}`)
+  static async open(cap: CapacitorGlobal, fs: FilesystemPlugin, folder: string): Promise<NativeFileStore> {
+    const store = new NativeFileStore(fs, cap, `${FILES_ROOT}/${folder}`)
     await store.checkRangeReads()
     return store
   }
@@ -505,6 +577,44 @@ class NativeFileStore implements FileStore {
       if (!isNotFound(err)) throw err
     })
   }
+
+  async append(path: string, bytes: Uint8Array): Promise<number> {
+    const full = this.full(path)
+    const before = await this.size(path)
+    this.forget(path)
+    if (before === null) {
+      await this.fs.writeFile({ ...this.opts(full), data: bytesToBase64(bytes), recursive: true })
+    } else {
+      for (let at = 0; at < bytes.length; at += WRITE_CHUNK) {
+        await this.fs.appendFile({ ...this.opts(full), data: bytesToBase64(bytes.subarray(at, at + WRITE_CHUNK)) })
+      }
+    }
+    const size = (before ?? 0) + bytes.length
+    this.sizes.set(path, size)
+    return size
+  }
+
+  async rename(from: string, to: string): Promise<void> {
+    const src = this.full(from)
+    const dest = this.full(to)
+    this.forget(from)
+    this.forget(to)
+    await this.fs.deleteFile(this.opts(dest)).catch((err) => {
+      if (!isNotFound(err)) throw err
+    })
+    await this.fs.rename({ from: src, to: dest, directory: LIBRARY_NO_CLOUD })
+  }
+
+  async list(dir: string): Promise<string[]> {
+    const full = dir ? this.full(dir) : this.root
+    try {
+      const { files } = await this.fs.readdir(this.opts(full))
+      return files.map((f) => f.name).sort()
+    } catch (err) {
+      if (isNotFound(err)) return []
+      throw err
+    }
+  }
 }
 
 // ---------- Choosing one ----------
@@ -548,6 +658,29 @@ export function openFileStore(ownerId: string): Promise<FileStore> {
     store.catch(() => stores.delete(ownerId))
   }
   return store
+}
+
+let sharedPacks: Promise<FileStore | null> | undefined
+
+/**
+ * The shared pack store, `maps/_packs/`: offline basemap packs, which belong
+ * to nobody (rebuild plan §0). Native Filesystem in the crew app, OPFS on
+ * the website; null where neither works (Safari before 26 on the website),
+ * because a pack is tens of megabytes written a piece at a time, which the
+ * IndexedDB fallback can't do well.
+ */
+export function openSharedPackFiles(): Promise<FileStore | null> {
+  if (!sharedPacks) {
+    sharedPacks = (async () => {
+      const cap = nativeCapacitor()
+      const fs = cap && filesystemPlugin(cap)
+      if (cap && fs) return NativeFileStore.open(cap, fs, SHARED_PACKS_DIR)
+      if (await opfsWorks(SHARED_PACKS_DIR)) return OpfsFileStore.open(SHARED_PACKS_DIR)
+      return null
+    })()
+    sharedPacks.catch(() => (sharedPacks = undefined))
+  }
+  return sharedPacks
 }
 
 /**

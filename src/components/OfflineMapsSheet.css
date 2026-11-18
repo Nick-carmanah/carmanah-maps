@@ -1,0 +1,159 @@
+/* Offline maps sheet (OfflineMapsSheet.tsx) */
+.offline-sheet {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  max-height: 82vh;
+  overflow-y: auto;
+  background: rgba(26, 26, 26, 0.98);
+  border-top: 1px solid #3a3a3a;
+  border-radius: 14px 14px 0 0;
+  padding: 10px 14px calc(14px + env(safe-area-inset-bottom));
+  color: #eee;
+  font-size: 14px;
+}
+
+.offline-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.offline-head h2 {
+  margin: 4px 0;
+  font-size: 17px;
+}
+
+.offline-sheet h3 {
+  margin: 14px 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #bbb;
+}
+
+.offline-sheet .muted {
+  color: #999;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.pack-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pack-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #232323;
+  border: 1px solid #333;
+  border-radius: 10px;
+  padding: 9px 10px;
+}
+
+.pack-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.pack-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pack-meta {
+  color: #aaa;
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+.pack-bar {
+  height: 4px;
+  background: #3a3a3a;
+  border-radius: 2px;
+  margin-top: 6px;
+  overflow: hidden;
+}
+
+.pack-bar > div {
+  height: 100%;
+  background: #f97316;
+  transition: width 0.3s;
+}
+
+.pack-actions {
+  display: flex;
+  gap: 6px;
+  flex: none;
+}
+
+.seg {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0;
+}
+
+.offline-select {
+  width: 100%;
+  margin: 4px 0;
+  padding: 9px 10px;
+  border-radius: 8px;
+  border: 1px solid #444;
+  background: #2a2a2a;
+  color: #eee;
+  font-size: 14px;
+}
+
+.offline-note {
+  color: #aaa;
+  font-size: 12px;
+  line-height: 1.4;
+  margin: 8px 0;
+}
+
+.offline-note.warn,
+.pack-meta .warn {
+  color: #fca5a5;
+}
+
+.offline-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: #232323;
+  border: 1px solid #444;
+  border-radius: 10px;
+  padding: 10px;
+  margin-top: 6px;
+}
+
+.offline-size {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.btn.wide {
+  width: 100%;
+  justify-content: center;
+  margin-top: 6px;
+  padding: 11px 12px;
+  font-size: 15px;
+}
+
+.offline-sheet .btn:disabled {
+  opacity: 0.5;
+}
