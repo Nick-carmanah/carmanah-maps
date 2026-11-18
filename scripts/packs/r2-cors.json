@@ -1,0 +1,16 @@
+[
+  {
+    "AllowedOrigins": [
+      "https://nick-carmanah.github.io",
+      "https://app.carmanahwildfire.com",
+      "capacitor://localhost",
+      "https://localhost",
+      "http://localhost:5173",
+      "http://localhost:4173"
+    ],
+    "AllowedMethods": ["GET", "HEAD"],
+    "AllowedHeaders": ["range", "if-range", "if-match", "if-none-match"],
+    "ExposeHeaders": ["ETag", "Content-Range", "Content-Length", "Accept-Ranges", "Last-Modified", "Cache-Control"],
+    "MaxAgeSeconds": 86400
+  }
+]
