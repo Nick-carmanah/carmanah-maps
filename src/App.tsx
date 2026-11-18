@@ -1,7 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { Map as MlMap } from 'maplibre-gl'
 import MapView from './map/MapView'
 import LayerPanel from './components/LayerPanel'
 import QrScanner from './components/QrScanner'
+import SendAreaSheet from './components/SendAreaSheet'
+import { printableLayers } from './map/print-render'
 import FeatureSheet, { type PhotoThumb } from './components/FeatureSheet'
 import {
   featuresToCsv,
@@ -87,6 +90,8 @@ export default function App() {
   const [hiddenLayers, setHiddenLayers] = useState<Set<string>>(new Set())
   const [gridOn, setGridOn] = useState(() => localStorage.getItem('carmanah-grid') === '1')
   const [toolsOpen, setToolsOpen] = useState(false)
+  const [sendAreaOpen, setSendAreaOpen] = useState(false)
+  const [mainMap, setMainMap] = useState<MlMap | null>(null)
   const [layersOpen, setLayersOpen] = useState(false)
   const [basemap, setBasemap] = useState<'streets' | 'satellite'>(
     () => (localStorage.getItem('carmanah-basemap') as 'streets' | 'satellite') || 'streets',
@@ -96,6 +101,20 @@ export default function App() {
   const nav = useNavigation(navTarget, (m, e) => showToastRef.current(m, e))
   useGeofences(userFeatures, (m) => showToastRef.current(`⚠️ ${m}`, true))
   const [toast, setToast] = useState<Toast | null>(null)
+  const sendAreaLayers = useMemo(
+    () =>
+      sendAreaOpen
+        ? printableLayers({
+            userFeatures,
+            hiddenLayers,
+            overlays,
+            hiddenIds,
+            liveFires: liveEnabled ? liveData : null,
+            showLivePerimeters: livePerimeters,
+          })
+        : null,
+    [sendAreaOpen, userFeatures, hiddenLayers, overlays, hiddenIds, liveEnabled, liveData, livePerimeters],
+  )
   const [focusRequest, setFocusRequest] = useState<{ id: string; nonce: number } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
@@ -550,6 +569,7 @@ export default function App() {
           onDropPin={handleDropPin}
           onEditFeature={setEditingId}
           onNotify={showToast}
+          onMapReady={setMainMap}
           units={units}
           basemap={basemap}
           openSearchNonce={searchNonce}
@@ -617,6 +637,16 @@ export default function App() {
           </div>
         )}
 
+        {sendAreaOpen && sendAreaLayers && (
+          <SendAreaSheet
+            map={mainMap}
+            layers={sendAreaLayers}
+            basemap={basemap}
+            onClose={() => setSendAreaOpen(false)}
+            onNotify={showToast}
+          />
+        )}
+
         {toolsOpen && (
           <div className="sheet-wrap">
             <div className="sheet-backdrop" onClick={() => setToolsOpen(false)} />
@@ -663,6 +693,15 @@ export default function App() {
                     action: () => fileInputRef.current?.click(),
                   },
                   {
+                    icon: '🗺',
+                    label: 'Send this area as a map',
+                    action: () => {
+                      setPinMode(false)
+                      setMeasuring(false)
+                      setSendAreaOpen(true)
+                    },
+                  },
+                  {
                     icon: '⚙️',
                     label: 'Profile and settings',
                     action: () => setSettingsOpen(true),
@@ -674,6 +713,7 @@ export default function App() {
                   className="tool-row"
                   onClick={() => {
                     setToolsOpen(false)
+                    setSendAreaOpen(false)
                     tool.action()
                   }}
                 >

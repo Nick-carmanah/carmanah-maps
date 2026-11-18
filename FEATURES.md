@@ -62,6 +62,7 @@ Legend: ✅ done · 🟡 partial · ⬜ todo · ➕ ours (no Avenza equivalent)
 | Export GPX | Free | ✅ | Waypoints + tracks |
 | Export CSV | Free | ✅ | Name/kind/coords/measurement/notes |
 | Shapefile export | Pro | ⬜ | For agency GIS shops |
+| Send this area as a map (georeferenced PDF for Avenza) | — | ➕ 🟡 | Tools → "Send this area as a map": frame a box over the map; Letter/Legal/11×17, portrait/landscape, 150/300 DPI, editable title (fire number + date). Streets basemap + hillshade + the visible pins/lines/areas/tracks, imported overlays and live fires; UTM grid with edge labels, scale bars, north arrow, corner coordinates, credits. Drawn offline from saved tiles (warns before making it when some aren't saved). ArcGIS-style ISO 32000 georeferencing in Web Mercator; re-imports into this app with 0 m corner error. Shares through the phone's share sheet (AirDrop, Quick Share, Open in Avenza). Satellite is left out: Esri's terms don't allow its imagery in an exported file. Still to confirm in Avenza on a phone |
 | Share map features (link/file) | Free | 🟡 | OS share sheet w/ download fallback; ?kml= link sharing todo |
 | Map distribution to teams | Pro | ⬜ | Carmanah account layer sync (v1.5) |
 | Subscription/org management | Pro | ⬜ | Later, with Carmanah auth |
