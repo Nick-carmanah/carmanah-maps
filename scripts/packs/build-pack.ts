@@ -4,6 +4,7 @@
 //   node scripts/packs/build-pack.ts --perimeter fire.kml --name "…" --fire K12345
 //   node scripts/packs/build-pack.ts --bbox=-121.7,50.1,-121.4,50.3 --name "…"   (note the =)
 //   node scripts/packs/build-pack.ts --area bc                     the BC-wide archives phones cut fires from
+//   node scripts/packs/build-pack.ts --area region.geojson         the same for any outline
 //   … --measure                                                    sizes only, no tiles downloaded
 //
 // Output goes to samples/packs/ by default (git ignores samples/). Publish
@@ -114,8 +115,11 @@ async function main() {
     rings = [bboxRing(b as Bbox)]
     name ??= `Area ${args.bbox}`
   } else {
-    const file = new URL(`./areas/${args.area}.geojson`, import.meta.url)
-    if (!existsSync(file)) throw new Error(`no area "${args.area}" in scripts/packs/areas/`)
+    // A named area in scripts/packs/areas/, or a GeoJSON file (named after the file).
+    const isFile = /\.(geo)?json$/i.test(args.area!)
+    const file = isFile ? resolve(args.area!) : new URL(`./areas/${args.area}.geojson`, import.meta.url)
+    if (!existsSync(file)) throw new Error(`no area "${args.area}" (scripts/packs/areas/<name>.geojson, or a .geojson file)`)
+    if (isFile) args.area = basename(args.area!).replace(/\.(geo)?json$/i, '').toLowerCase().replace(/[^a-z0-9-]+/g, '-')
     rings = ringsFromGeoJSON(JSON.parse(readFileSync(file, 'utf8')))
     name ??= args.area!
   }
