@@ -263,14 +263,17 @@ export interface RenderedGeoPdf {
   drawErrors: string[]
 }
 
-/** A crop counts as blank when more than this share of it is one colour. */
-const BLANK_MAX_SHARE = 0.99
+// Blank-render check. A failed render is one flat colour: white (pdf.js paints
+// the page white first) or transparent (the canvas itself failed). But a real,
+// sparse map, such as a thin perimeter on a white page, can also be over 99%
+// one colour. So that share alone only refuses a map that is essentially flat;
+// below that, the map is refused only if pdf.js also reported a draw error.
+/** Refuse the map when at least this share of it is one colour. */
+const FLAT_RENDER_SHARE = 0.999
+/** Refuse the map when more than this share is one colour AND pdf.js skipped something while drawing. */
+const NEARLY_BLANK_SHARE = 0.99
 
-/**
- * Share (0–1) of pixels that are exactly the image's most common colour. A
- * failed render is one flat colour: white (pdf.js paints the page white
- * first) or transparent (the canvas itself failed).
- */
+/** Share (0–1) of pixels that are exactly the image's most common colour. */
 export function dominantColourShare(rgba: Uint8ClampedArray): number {
   const px = new Uint32Array(rgba.buffer, rgba.byteOffset, rgba.length >>> 2)
   if (!px.length) return 1
@@ -364,12 +367,14 @@ export async function renderGeoPdfRegion(
       fullCanvas.width = fullCanvas.height = 0
 
       // A blank map would look like a successful import and leave a crew with
-      // nothing in the field. Refuse to save it.
+      // nothing in the field. Refuse to save it (see FLAT_RENDER_SHARE).
       const pixels = cropCtx.getImageData(0, 0, cropCanvas.width, cropCanvas.height).data
-      if (dominantColourShare(pixels) > BLANK_MAX_SHARE) {
+      const share = dominantColourShare(pixels)
+      if (share >= FLAT_RENDER_SHARE || (share > NEARLY_BLANK_SHARE && drawErrors.size > 0)) {
+        const how = share >= FLAT_RENDER_SHARE ? 'blank' : 'almost blank'
         const why = drawErrors.size ? ` (${[...drawErrors][0]})` : ''
         throw new Error(
-          `the map came out blank${why}, so it wasn't saved. Update the phone's software (iOS or Android) and try again; if it's still blank, report this map.`,
+          `the map came out ${how}${why}, so it wasn't saved. Update the phone's software (iOS or Android) and try again; if it's still blank, report this map.`,
         )
       }
 
