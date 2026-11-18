@@ -1,0 +1,26 @@
+Carmanah Maps offline basemap files
+===================================
+
+These files are offline map data for the Carmanah Maps app. They are cut,
+unchanged, from openly licensed sources. If you use them, keep these credits.
+
+basemap/…, packs/…/basemap.pmtiles
+  Vector map tiles in the OpenMapTiles schema, from the OpenFreeMap weekly
+  planet build named in the file (https://openfreemap.org).
+  Map data © OpenStreetMap contributors, available under the Open Database
+  License (ODbL) 1.0: https://www.openstreetmap.org/copyright
+  These files are offered under the ODbL as well.
+  Tile schema and style © OpenMapTiles (CC BY 4.0): https://www.openmaptiles.org/
+
+terrain/…, packs/…/terrain.pmtiles
+  Terrarium elevation tiles from the Terrain Tiles open dataset on AWS
+  (https://registry.opendata.aws/terrain-tiles/), originally by Mapzen.
+  Sources and credits: https://github.com/tilezen/joerd/blob/master/docs/attribution.md
+  Including: Canada terrain data contains information licensed under the
+  Open Government Licence – Canada. SRTM and GMTED2010 data courtesy of the
+  U.S. Geological Survey. ETOPO1 data: U.S. National Oceanic and Atmospheric
+  Administration. Not for navigation.
+
+imagery/…
+  Satellite imagery. Each file's licence and credit is given in catalog.json
+  and in the file's own metadata.

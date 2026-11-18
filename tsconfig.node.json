@@ -12,5 +12,5 @@
     "noEmit": true,
     "strict": true
   },
-  "include": ["vite.config.ts", "vitest.config.ts", "build"]
+  "include": ["vite.config.ts", "vitest.config.ts", "build", "scripts/packs"]
 }
