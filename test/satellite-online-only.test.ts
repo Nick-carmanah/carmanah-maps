@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { LngLatBounds } from 'maplibre-gl'
 import { TILE_CACHE_PATTERN } from '../vite.config'
-import { SATELLITE_TILE_URL, TILEJSON_URL } from '../src/map/basemap'
+import { TILEJSON_URL } from '../src/map/basemap'
+import { ESRI_IMAGERY_TILE_URL } from '../src/map/satellite-source'
 import {
   estimateTileCount,
   packUrls,
@@ -13,7 +14,7 @@ import { FAILURES_FOR_NO_SIGNAL, SatelliteSignal } from '../src/lib/satellite-si
 // Esri's terms for World Imagery don't allow keeping its tiles offline outside
 // Esri software (docs/satellite-imagery-options.md), so satellite is online only.
 
-const esriTile = SATELLITE_TILE_URL.replace('{z}', '14').replace('{y}', '5629').replace('{x}', '2602')
+const esriTile = ESRI_IMAGERY_TILE_URL.replace('{z}', '14').replace('{y}', '5629').replace('{x}', '2602')
 
 /** A small area near Kamloops, BC. */
 const bounds = {

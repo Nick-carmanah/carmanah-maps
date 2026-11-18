@@ -23,6 +23,41 @@ satellite needs signal (`src/lib/satellite-signal.ts`). "Send this area as a
 map" (#13) leaves satellite out on purpose (`SATELLITE_NOTE` in
 `src/lib/send-area.ts`).
 
+## Decision (2026-11-18)
+
+Nick chose **option 1: Sentinel-2, our own BC tiles**, hosted on Cloudflare
+R2. Until that file is up, satellite is Esri, online only (#19). Where
+things stand:
+
+- **Build:** `scripts/imagery/` (see its README). It fetches the newest
+  quarterly mosaic over BC and writes one PMTiles file (WebP, z0–13; the map
+  enlarges z13 past that). Tested end to end on a small area from public
+  Sentinel-2 L2A scenes (same data and licence). The full mosaic build needs
+  Nick's free Copernicus Data Space S3 keys in his environment.
+- **Size for all of BC** (the BC outline plus 10 km), measured from test
+  builds at 8–11 KB a tile:
+
+  | | Tiles | File |
+  |---|---|---|
+  | **z0–13 (built)** | 176,642 | **~1.5–2 GB** |
+  | z0–14 (not worth it: no extra detail in 10 m data) | 700,064 | ~5–7 GB |
+  | One 1,000,000 ha fire (100 × 100 km), z0–13 | ~1,600 | ~15 MB |
+
+  Reading the source: 167 mosaic squares, 83 GB of band files (red, green,
+  blue), within the free account's limits; a few hours on a laptop,
+  resumable. It fits R2's free 10 GB next to the BC basemap and terrain.
+- **Credit:** `Contains modified Copernicus Sentinel data 2026` (the
+  mosaic's year). It's in the file's metadata and shows on the map.
+- **App:** one setting, `VITE_SATELLITE_PMTILES_URL` in `.env`
+  (`src/map/satellite-source.ts`). Empty, or the file not there yet: Esri,
+  online only.
+- **Still to do:**
+  - Upload (docs/hosting-r2.md).
+  - Add satellite to saved areas and fire packs (`satellite.pmtiles` per
+    pack).
+  - Print it in "Send this area as a map".
+  - Show the imagery date in the layer picker.
+
 ## Recommendation
 
 1. **Use the free Copernicus Sentinel-2 quarterly mosaics, turned into our own
@@ -59,7 +94,7 @@ at 54° N; 10 m imagery is sharpest around z13–z14 and is stretched beyond.
 
 | Source | Offline on phones | In exported PDFs | Cost | Resolution over BC | Imagery date | Endpoint | Credit to show |
 |---|---|---|---|---|---|---|---|
-| **Copernicus Sentinel-2 quarterly mosaics** (recommended) | ✅ free, full and open; we host our own copy | ✅ with credit | Free data; we pay hosting (~10–20 GB for all of BC) and build time | 10 m | Quarterly; newest over BC: Jul–Sep 2026 | None ready-made. Cloud-optimised GeoTIFFs (`sentinel-2-global-mosaics` STAC collection) → our PMTiles | `Contains modified Copernicus Sentinel data 2026` |
+| **Copernicus Sentinel-2 quarterly mosaics** (chosen) | ✅ free, full and open; we host our own copy | ✅ with credit | Free data; we pay hosting (~1.5–2 GB for all of BC to z13) and build time | 10 m | Quarterly; newest over BC: Jul–Sep 2026 | None ready-made. Cloud-optimised GeoTIFFs (`sentinel-2-global-mosaics` STAC collection) → our PMTiles | `Contains modified Copernicus Sentinel data 2026` |
 | **EOX Sentinel-2 cloudless 2016** (short-term) | ✅ CC BY 4.0; EOX says cache on your device or CDN | ✅ with credit printed on the map | Free; no uptime promise; fair use | 10 m, z0–14 | 2016 | WMTS/XYZ: `https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless_3857/default/g/{z}/{y}/{x}.jpg` | `EOxCloudless https://cloudless.eox.at by EOX IT Services GmbH (Contains modified Copernicus Sentinel data 2016)` |
 | EOX Sentinel-2 cloudless 2018–2025, commercial licence | ✅ in-app caching and offline packs | ✅ with credit printed on the map | €5,000 per past year, €6,000 for 2025 (one-off, worldwide); hosted endpoint €6,000/yr | 10 m, z0–14 | Yearly; latest 2025 | Delivered as a whole-world file (856 GB for 2025), or their paid endpoint | Same as above, with the year |
 | MapTiler On-prem, Standard | ✅ (built for offline) | 🟡 50 prints/month, internal only | US$2,500/yr | "Medium-Res" (not stated per region) | Not stated | Download, self-host | MapTiler's credit |
@@ -287,14 +322,17 @@ per quarter. The newest file over BC (checked 2026-11-18) is
 had no cloud-free view, the pixel is left empty, so a build may need to fill
 gaps from the quarter before.
 
-What it would take (a follow-up PR, after Nick's go):
+What it takes (now built, see "Decision" above):
 
-- A build script: download the BC mosaic files, make true-colour tiles to z14,
-  pack them as one PMTiles file. Rough size: about 0.6 million tiles, on the
-  order of 10–20 GB for all of BC (EOX's 10 m JPEG tiles run ~26 KB each). A
-  1,000,000 ha fire is about 6,500 tiles (roughly 130–200 MB).
-- Somewhere to host it (the same question as the planned regional basemap
-  packs), and "Save offline" taught to include satellite.
+- A build script (`scripts/imagery/`): read the BC mosaic files, make
+  true-colour WebP tiles to z13, pack them as one PMTiles file: about
+  177,000 tiles, 1.5–2 GB for all of BC. A 1,000,000 ha fire is about 1,600
+  tiles, ~15 MB. (An earlier guess here, 10–20 GB to z14 at ~26 KB a tile,
+  was based on EOX's JPEGs; measured WebP tiles are 8–11 KB, and z14 adds
+  no detail to 10 m data.) Gaps a quarter never saw clearly are filled from
+  the quarter before.
+- Hosting on R2 (docs/hosting-r2.md, `imagery/s2/bc/<year>q<n>.pmtiles`),
+  and saved areas taught to include satellite.
 - A refresh each season (more often during a big fire year if wanted).
 - The credit on screen and on every exported map:
   `Contains modified Copernicus Sentinel data 2026`.
@@ -351,16 +389,26 @@ is US federal imagery (mostly NAIP, 0.6–1 m), credit "USDA, USGS The National
 Map: Orthoimagery. Data refreshed June, 2024." USGS distributes NAIP as public
 domain. It stops at the border, so it's no use in BC.
 
-## What changes in the app when we switch (for the follow-up PR)
+## What changes in the app
 
-- `src/map/basemap.ts`: the `satellite` source's tile URL, `maxzoom` (14 for
-  Sentinel-2) and `attribution`.
-- `vite.config.ts`: Esri is already out of `TILE_CACHE_PATTERN`; self-hosted
-  PMTiles are read with Range requests, so they're saved as packs, not by the
-  service worker.
-- `src/lib/mappacks.ts`: add satellite tiles to "Save offline" (counted
-  against the tile cap on the website).
-- The send-area export: stop filtering `satellite` out in
-  `src/map/print-render.ts`, add its credit to `attributionLines()` and drop
-  `SATELLITE_NOTE` in `src/lib/send-area.ts`.
-- The layer picker: show the imagery year next to "Satellite".
+Done:
+
+- `src/map/satellite-source.ts`: the `satellite` source is our PMTiles file
+  (`pmtiles://<url>`; zooms, bounds and credit come from the file) when
+  `VITE_SATELLITE_PMTILES_URL` is set. If the file isn't there yet (the
+  server answers with an error), the map uses Esri online instead.
+- `vite.config.ts`: Esri is out of `TILE_CACHE_PATTERN`. PMTiles are read
+  with Range requests, which the service worker doesn't cache; they go
+  offline as packs.
+
+Still to do:
+
+- Saved areas and fire packs: cut `satellite.pmtiles` from the BC file, the
+  same way as the basemap and terrain packs (docs/hosting-r2.md). Until then
+  satellite needs signal, Sentinel-2 included.
+- "Send this area as a map":
+  - Stop filtering out `satellite` in `src/map/print-render.ts` when it's
+    Sentinel-2.
+  - Add the credit to `attributionLines()`.
+  - Drop `SATELLITE_NOTE` in `src/lib/send-area.ts` (keep it for Esri).
+- The layer picker: show the imagery date next to "Satellite".

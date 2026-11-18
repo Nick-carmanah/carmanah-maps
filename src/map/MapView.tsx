@@ -37,7 +37,15 @@ import {
 } from '../lib/mappacks'
 import { BASEMAP_LAYER_IDS, MAP_STYLE } from './basemap'
 import { EMBEDDED } from '../lib/embedded'
-import { satelliteSignal } from '../lib/satellite-signal'
+import { satelliteSignal, setSatelliteKind } from '../lib/satellite-signal'
+import {
+  checkSentinelFile,
+  initialSatelliteKind,
+  SATELLITE_PMTILES_URL,
+  satelliteSource,
+  type SatelliteKind,
+} from './satellite-source'
+import { registerSatelliteProtocol } from './satellite-protocol'
 
 interface MapViewProps {
   /** Imported maps from the Maps library (GeoPDFs), oldest first. */
@@ -144,10 +152,21 @@ export default function MapView({
   const [packEstimate, setPackEstimate] = useState<number | null>(null)
   const estimateTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
+  // Which satellite imagery the map uses: our Sentinel-2 file when it's
+  // configured and there, else Esri online (src/map/satellite-source.ts).
+  const satelliteKindRef = useRef<SatelliteKind>(initialSatelliteKind())
+  // The imagery source failed to load without signal: load it again when
+  // signal is back (MapLibre doesn't retry a failed source on its own).
+  const satelliteReloadRef = useRef(false)
+
   // Basemap (streets ↔ satellite) — chosen in the layers sheet.
   useEffect(() => {
     const map = mapRef.current
     if (!map || !loadedRef.current) return
+    if (basemap === 'satellite' && satelliteReloadRef.current) {
+      satelliteReloadRef.current = false
+      replaceSatelliteSource(map, satelliteKindRef.current)
+    }
     showBasemap(map, basemap)
   }, [basemap])
 
@@ -275,6 +294,7 @@ export default function MapView({
 
   useEffect(() => {
     if (!containerRef.current) return
+    if (SATELLITE_PMTILES_URL) registerSatelliteProtocol()
     const map = new MlMap({
       container: containerRef.current,
       style: MAP_STYLE,
@@ -288,14 +308,31 @@ export default function MapView({
     // Dev console access (harmless in prod, handy for debugging in the field too)
     ;(window as unknown as Record<string, unknown>).__map = map
     map.on('error', (e) => {
-      // A satellite tile that didn't load: several in a row mean no signal,
-      // and the map shows streets instead of blank tiles.
-      if ((e as { sourceId?: string }).sourceId === 'satellite' && 'tile' in e) {
-        satelliteSignal.tileFailed()
+      if ((e as { sourceId?: string }).sourceId === 'satellite') {
+        // A satellite tile that didn't load: several in a row mean no
+        // signal, and the map shows streets instead of blank tiles.
+        if ('tile' in e && e.tile) satelliteSignal.tileFailed()
+        else void satelliteSourceFailed()
         return
       }
       console.error('[map error]', e.error?.message ?? e)
     })
+    // The Sentinel-2 file couldn't be opened. Not uploaded yet (the server
+    // answers with an error): use Esri online. No answer: no signal.
+    const satelliteSourceFailed = async () => {
+      const status = satelliteKindRef.current === 'sentinel' ? await checkSentinelFile() : 'unreachable'
+      if (!loadedRef.current) await new Promise((resolve) => map.once('load', resolve))
+      if (mapRef.current !== map) return
+      if (status === 'missing') {
+        satelliteKindRef.current = 'esri'
+        setSatelliteKind('esri')
+        replaceSatelliteSource(map, 'esri')
+        showBasemap(map, basemapRef.current)
+      } else {
+        satelliteReloadRef.current = true
+        satelliteSignal.sourceFailed()
+      }
+    }
     map.on('sourcedata', (e) => {
       if (e.sourceId === 'satellite' && e.tile) satelliteSignal.tileLoaded()
     })
@@ -855,6 +892,17 @@ function addUserFeatureLayers(map: MlMap) {
 function setUserFeatureData(map: MlMap, features: UserFeature[], hiddenLayerIds: Set<string>) {
   const source = map.getSource('user-features') as maplibregl.GeoJSONSource | undefined
   source?.setData(featuresToGeoJSON(features.filter((f) => !hiddenLayerIds.has(f.layerId))))
+}
+
+/** Swap the satellite source (same place in the layer stack, same visibility). */
+function replaceSatelliteSource(map: MlMap, kind: SatelliteKind) {
+  const layers = map.getStyle().layers ?? []
+  const beforeId = layers[layers.findIndex((l) => l.id === 'satellite') + 1]?.id
+  const visibility = (map.getLayoutProperty('satellite', 'visibility') as 'visible' | 'none' | undefined) ?? 'none'
+  map.removeLayer('satellite')
+  map.removeSource('satellite')
+  map.addSource('satellite', satelliteSource(kind))
+  map.addLayer({ id: 'satellite', type: 'raster', source: 'satellite', layout: { visibility } }, beforeId)
 }
 
 function showBasemap(map: MlMap, basemap: 'streets' | 'satellite') {
