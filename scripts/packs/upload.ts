@@ -19,8 +19,8 @@ import { basename, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { objectHeaders } from './layout.ts'
 
-const REMOTE = process.env.R2_REMOTE || 'carmanah-r2'
-const BUCKET = process.env.R2_BUCKET || 'carmanah-maps'
+export const REMOTE = process.env.R2_REMOTE || 'carmanah-r2'
+export const BUCKET = process.env.R2_BUCKET || 'carmanah-maps'
 
 function rclone(args: string[], inherit = false): string {
   const out = spawnSync('rclone', args, { encoding: 'utf8', stdio: inherit ? 'inherit' : 'pipe' })
@@ -32,7 +32,7 @@ function rclone(args: string[], inherit = false): string {
 function checkRemote(): void {
   const remotes = rclone(['listremotes']).split('\n').map((s) => s.trim())
   if (!remotes.includes(`${REMOTE}:`)) {
-    throw new Error(`No rclone remote "${REMOTE}". Set it up as in docs/hosting-r2.md §5 (or set R2_REMOTE).`)
+    throw new Error(`No rclone remote "${REMOTE}". Set it up as in docs/hosting-r2.md §4 (or set R2_REMOTE).`)
   }
 }
 

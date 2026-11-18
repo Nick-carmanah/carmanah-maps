@@ -38,7 +38,7 @@ The output is `dist-embedded/`. It differs from the website build
 | Web app manifest, `registerSW.js`, home-screen icons, demo KML | Yes | No |
 | First script in `index.html` | — | `<script src="/capacitor.js"></script>` |
 | `precache-manifest.json` | — | Yes, listing every other file |
-| "Save offline" button (basemap tiles in the browser cache) | Yes | Hidden: see §8 |
+| Offline maps (fire packs, [fire-packs.md](fire-packs.md)) | Yes, in OPFS | Yes, in Filesystem `maps/_packs/` |
 
 Everything else is the same app, from the same source.
 
@@ -211,7 +211,7 @@ Capacitor package in its main bundle.
 | Plugin | Calls | Version |
 |---|---|---|
 | @capacitor/core (as `/capacitor.js`) | `isNativePlatform`, `convertFileSrc`, `registerPlugin` | 8.x; tested with 8.6.0 |
-| @capacitor/filesystem | Sharing: `writeFile`, `appendFile`, `rmdir` in `Cache`. Personal files: `writeFile`, `appendFile`, `readFile` with `offset`/`length`, `stat`, `deleteFile`, `rmdir`, `rename`, `getUri` in `LibraryNoCloud` under `maps/<ownerId>/` ([owner-data.md](owner-data.md#native-file-store)) | **≥ 8.1.0**, for `readFile` by offset. Tested with 8.1.5. |
+| @capacitor/filesystem | Sharing: `writeFile`, `appendFile`, `rmdir` in `Cache`. Personal files: `writeFile`, `appendFile`, `readFile` with `offset`/`length`, `stat`, `deleteFile`, `rmdir`, `rename`, `getUri`, `readdir` in `LibraryNoCloud` under `maps/<ownerId>/` ([owner-data.md](owner-data.md#native-file-store)). Offline map packs: the same calls under `maps/_packs/` ([fire-packs.md](fire-packs.md#5-in-the-app)) | **≥ 8.1.0**, for `readFile` by offset. Tested with 8.1.5. |
 | @capacitor/share | `share({ title, files: [uri] })` | Tested with 8.0.3 |
 
 All plugin lookups go through `src/lib/storage/capacitor.ts`. It tries a
@@ -262,21 +262,25 @@ so a copy left by a closed page doesn't wait for the next person.
 9. If the maps page ever gets a Content-Security-Policy, it must allow
    `script-src 'self'` (the page has no inline scripts), `worker-src blob:`,
    `img-src 'self' data: blob:`, and `connect-src` to the app's own scheme
-   plus the map, terrain and fire-data hosts.
+   plus the map, terrain and fire-data hosts and the offline-map bucket
+   (`VITE_PACKS_URL`'s host).
 10. Every maps release is a crew release with a new `CACHE_NAME`.
 
 ## 8. Known limits in this build
 
-- **The basemap still needs signal in the crew app.** Website saved areas
-  live in the browser cache and are served by the website's own service
-  worker, which the crew app doesn't have. So this build hides "Save
-  offline", rather than offering areas it would never show offline.
-
-  Labels and map icons are bundled, so they work offline from the first
-  launch. The person's own data and imported maps are kept on the phone (§6),
-  so they don't need signal either. Offline basemaps come with native packs
-  (plan Phase 0.3/0.4). Those need to land before crews rely on the map page
-  offline.
+- **Offline basemaps are packs on the phone** ([fire-packs.md](fire-packs.md)):
+  "Offline maps" saves a fire's perimeter plus a buffer into
+  `Library/NoCloud/maps/_packs/`. The packs are shared by everyone on the
+  phone and stay when a person is removed. Whole fires need the bucket
+  ([hosting-r2.md](hosting-r2.md)) and the build setting
+  `VITE_PACKS_URL=<bucket URL> npm run build:embedded`. Without it, only
+  areas up to 3,000 tiles can be saved. Labels and map icons are bundled,
+  and the person's own data and imported maps are on the phone (§6), so
+  none of them need signal.
+- **Downloads run while the map page is open.** They pause when iOS
+  suspends the app and carry on when it's back, or at the next start.
+  Downloading in the background would need `@capacitor/file-transfer`
+  (a crew-app change; not needed for Phase 0).
 - Android hasn't been run. There's no Android SDK on the build Mac.
 
 ## 9. One line for `/privacy`

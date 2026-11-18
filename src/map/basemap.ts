@@ -116,7 +116,10 @@ export const MAP_STYLE: maplibregl.StyleSpecification = {
       tiles: ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],
       encoding: 'terrarium',
       tileSize: 256,
-      maxzoom: 14,
+      // z12 (~25 m pixels in BC), stretched smoothly above that: what offline
+      // packs keep (docs/fire-packs.md), so hillshade looks the same with or
+      // without signal. z13–14 would make a 1M ha pack ~0.5 GB bigger.
+      maxzoom: 12,
       attribution: 'Terrain: Mapzen/AWS Open Data',
     },
   },

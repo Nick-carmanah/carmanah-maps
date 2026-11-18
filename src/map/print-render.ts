@@ -7,6 +7,8 @@ import type {
 import type { FeatureCollection } from 'geojson'
 import { MAP_STYLE, TILEJSON_URL } from './basemap'
 import { tileCacheKey } from '../lib/mappacks'
+import { packTileForUrl, packTransformRequest, registerPackProtocol, savedTileJson } from '../lib/packs/protocol'
+import { packRegistry } from '../lib/packs/registry'
 import {
   DEFAULT_FILL_OPACITY,
   DEFAULT_LINE_WIDTH,
@@ -182,16 +184,23 @@ async function vectorTilesUrl(): Promise<string | null> {
       // try the next source
     }
   }
+  // Offline in the crew app (no service worker): the copy the map saved, or one from the packs.
+  const saved = (await savedTileJson().catch(() => null))?.tiles?.[0]
+  if (saved) {
+    tileJsonMemo = { url: saved, at: Date.now() }
+    return saved
+  }
   return null
 }
 
 /**
- * Is this file saved for offline use? Website: the service worker's Cache
- * Storage. null = can't tell (no Cache Storage, e.g. inside the native app
- * until its own tile store exists — Phase 0.3 points this at it).
+ * Is this file saved for offline use? In an offline pack (src/lib/packs/),
+ * or on the website in the service worker's Cache Storage. null = can't
+ * tell (neither store exists here).
  */
 async function savedOffline(url: string): Promise<boolean | null> {
-  if (typeof caches === 'undefined') return null
+  if (await packTileForUrl(url).catch(() => null)) return true
+  if (typeof caches === 'undefined') return (await packRegistry.store().catch(() => null)) ? false : null
   try {
     return !!(await caches.match(url))
   } catch {
@@ -520,9 +529,11 @@ async function renderAreaOnce(options: RenderOptions & { maxCanvas: number }): P
   try {
     const centreOf = (p: RenderPiece) =>
       worldToLngLat(area.x0 + p.x + p.w / 2, area.y0 + p.y + p.h / 2, area.zoom) as [number, number]
+    registerPackProtocol(maplibregl)
     map = new maplibregl.Map({
       container,
       style: printStyle(options.tiles.tilesUrl),
+      transformRequest: packTransformRequest,
       center: centreOf(plan[0]),
       zoom: area.zoom,
       bearing: 0,

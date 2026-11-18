@@ -124,6 +124,8 @@ export default function App() {
   const satelliteOk = useSatelliteSignal(basemap === 'satellite')
   const shownBasemap = basemap === 'satellite' && !satelliteOk ? 'streets' : basemap
   const [searchNonce, setSearchNonce] = useState(0)
+  // My Maps → Base map → Offline areas: opens the Offline maps sheet over the base map.
+  const [offlineNonce, setOfflineNonce] = useState(0)
   const navTarget = userFeatures.find((f) => f.id === navTargetId) ?? null
   const nav = useNavigation(navTarget, (m, e) => showToastRef.current(m, e))
   useGeofences(userFeatures, (m) => showToastRef.current(`⚠️ ${m}`, true))
@@ -731,6 +733,7 @@ export default function App() {
           onMapReady={setMainMap}
           basemap={viewer.basemapShown ? shownBasemap : 'none'}
           openSearchNonce={searchNonce}
+          openOfflineNonce={offlineNonce}
         />
 
         <button
@@ -851,6 +854,10 @@ export default function App() {
             readOriginal={maps.readOriginal}
             onShare={maps.shareFile}
             onSharpen={maps.sharpen}
+            onOfflineAreas={() => {
+              viewer.open({ kind: 'base' })
+              setOfflineNonce((n) => n + 1)
+            }}
           />
         )}
 

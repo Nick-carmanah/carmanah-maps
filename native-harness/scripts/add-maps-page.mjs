@@ -24,5 +24,12 @@ setTimeout(function(){var c=window.Capacitor;r('status','rendered='+(document.ge
 const page = join(HERE, 'dist', 'maps', 'index.html')
 const html = readFileSync(page, 'utf8')
 if (!html.includes('<script src="/capacitor.js"></script>')) throw new Error('maps/index.html has no /capacitor.js script')
-writeFileSync(page, html.replace('<script src="/capacitor.js"></script>', REPORTER + '<script src="/capacitor.js"></script>'))
-console.log('maps/ and capacitor.js added to dist/')
+const DRIVER = `<script>${readFileSync(join(HERE, 'scripts', 'maps-driver.js'), 'utf8')}</script>`
+const withScripts = html.replace('<script src="/capacitor.js"></script>', REPORTER + DRIVER + '<script src="/capacitor.js"></script>')
+writeFileSync(page, withScripts)
+// maps/offline.html: the same page under a Content-Security-Policy that lets
+// it reach nothing on http(s), only the app's own scheme, so whatever it
+// draws comes from storage on the phone (as in the native storage spike).
+const CSP = `<meta http-equiv="Content-Security-Policy" content="default-src 'self' capacitor://localhost; script-src 'self' 'unsafe-inline' capacitor://localhost; style-src 'self' 'unsafe-inline' capacitor://localhost; img-src 'self' data: blob: capacitor://localhost; font-src 'self' data: capacitor://localhost; worker-src blob: 'self'; child-src blob:; connect-src 'self' capacitor://localhost">`
+writeFileSync(join(HERE, 'dist', 'maps', 'offline.html'), withScripts.replace('<head>', `<head>${CSP}`))
+console.log('maps/ (index.html, offline.html) and capacitor.js added to dist/')

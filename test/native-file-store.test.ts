@@ -9,7 +9,7 @@
  *    a tiny probe file, and reads go through `readFile({ offset, length })`;
  *  - no request ever goes out without a Range header, and no whole-file
  *    response body is ever read;
- *  - writes go in chunks to a `.part` file that replaces the old one only
+ *  - writes go in chunks to a `.writing` file that replaces the old one only
  *    when complete.
  */
 import 'fake-indexeddb/auto'
@@ -95,7 +95,7 @@ describe('choosing the native backend', () => {
 describe('writing', () => {
   beforeEach(() => vi.resetModules())
 
-  it('writes large files in chunks of at most 4 MB, through a .part file renamed into place', async () => {
+  it('writes large files in chunks of at most 4 MB, through a .writing file renamed into place', async () => {
     const { cap, files, ownerId } = await nativeStore()
     const big = bytes(9 * 1024 * 1024 + 123)
     // Mixed parts, as the tile writer and the PDF import pass them.
@@ -106,9 +106,9 @@ describe('writing', () => {
     expect(cap.paths()).toEqual([target])
     const writes = cap.calls.filter((c) => c.method === 'writeFile' || c.method === 'appendFile')
     expect(writes.map((c) => c.method)).toEqual(['writeFile', 'appendFile', 'appendFile'])
-    expect(writes.every((c) => c.options.path === `${target}.part`)).toBe(true)
+    expect(writes.every((c) => c.options.path === `${target}.writing`)).toBe(true)
     for (const w of writes) expect(Buffer.from(String(w.options.data), 'base64').length).toBeLessThanOrEqual(4 * 1024 * 1024)
-    expect(cap.calls.find((c) => c.method === 'rename')?.options).toMatchObject({ from: `${target}.part`, to: target })
+    expect(cap.calls.find((c) => c.method === 'rename')?.options).toMatchObject({ from: `${target}.writing`, to: target })
   })
 
   it('replaces an existing file', async () => {
@@ -128,7 +128,7 @@ describe('writing', () => {
     expect(await files.size('empty.bin')).toBe(0)
   })
 
-  it('leaves the old file whole, and no .part, when a write fails half way', async () => {
+  it('leaves the old file whole, and no .writing file, when a write fails half way', async () => {
     const { cap, files, ownerId } = await nativeStore()
     await files.write('a.bin', [bytes(30, 1)])
     cap.failNext('appendFile', () => new Error('disk full'))

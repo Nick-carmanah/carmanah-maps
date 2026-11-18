@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import maplibregl, { Map as MlMap, Popup, type LngLatBoundsLike } from 'maplibre-gl'
 import type { FeatureCollection, Position } from 'geojson'
 import { getIcon } from '../lib/store'
@@ -29,13 +29,8 @@ import { splitSegments } from '../lib/track'
 import { buildGrid, gridSystemFor } from '../lib/grid'
 import { NWCG_SYMBOLS, nwcgIconUrl } from '../lib/nwcg'
 import { COORD_FORMATS, FORMAT_LABELS, formatCoord, parseCoordinate } from '../lib/coords'
-import {
-  AVG_TILE_KB,
-  downloadMapPack,
-  estimateTileCount,
-  MAX_TILES,
-} from '../lib/mappacks'
-import { BASEMAP_LAYER_IDS, MAP_STYLE } from './basemap'
+import { BASEMAP_LAYER_IDS, MAP_STYLE, TILEJSON_URL } from './basemap'
+import { nativeCapacitor } from '../lib/storage/capacitor'
 import { EMBEDDED } from '../lib/embedded'
 import { satelliteSignal, setSatelliteKind } from '../lib/satellite-signal'
 import {
@@ -46,6 +41,19 @@ import {
   type SatelliteKind,
 } from './satellite-source'
 import { registerSatelliteProtocol } from './satellite-protocol'
+import { packTransformRequest, registerPackProtocol } from '../lib/packs/protocol'
+import { packDownloads, type SmallSources } from '../lib/packs/manager'
+import OfflineMapsSheet from '../components/OfflineMapsSheet'
+import { formatMB } from '../lib/packs/format'
+
+/** Where a small area comes from when there's no hosted pack for it. */
+const SMALL_SOURCES: SmallSources = {
+  tileJsonUrl: TILEJSON_URL,
+  terrainUrl: (z, x, y) => `https://s3.amazonaws.com/elevation-tiles-prod/terrarium/${z}/${x}/${y}.png`,
+}
+
+/** Running inside the crew app (packs on the phone's file system)? */
+const hasNativeFiles = () => !!nativeCapacitor()
 
 interface MapViewProps {
   /** Imported maps from the Maps library (GeoPDFs), oldest first. */
@@ -92,6 +100,8 @@ interface MapViewProps {
   basemap: Basemap
   /** Bump to open the coordinate search input (from the tools sheet). */
   openSearchNonce: number
+  /** Bump to open the Offline maps sheet (from My Maps → Base map). */
+  openOfflineNonce?: number
 }
 
 export default function MapView({
@@ -115,6 +125,7 @@ export default function MapView({
   onMapReady,
   basemap,
   openSearchNonce,
+  openOfflineNonce = 0,
 }: MapViewProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<MlMap | null>(null)
@@ -153,12 +164,21 @@ export default function MapView({
   onEditFeatureRef.current = onEditFeature
   const onMapReadyRef = useRef(onMapReady)
   onMapReadyRef.current = onMapReady
-  const [packProgress, setPackProgress] = useState<{ done: number; total: number } | null>(
-    null,
+  const onNotifyRef = useRef(onNotify)
+  onNotifyRef.current = onNotify
+  // Offline maps (fire packs): the sheet, and the button's progress label.
+  const [offlineOpen, setOfflineOpen] = useState(false)
+  const downloading = useSyncExternalStore(
+    (fn) => packDownloads.subscribe(fn),
+    () => {
+      const all = [...packDownloads.active.values()]
+      if (!all.length) return ''
+      const done = all.reduce((s, d) => s + d.progress.done, 0)
+      const total = all.reduce((s, d) => s + d.progress.total, 0)
+      if (all.some((d) => d.progress.waiting)) return 'Waiting for signal…'
+      return total ? `Saving ${Math.floor((100 * done) / total)}%` : 'Saving…'
+    },
   )
-  // Two-step confirm: first tap shows the size estimate, second tap downloads.
-  const [packEstimate, setPackEstimate] = useState<number | null>(null)
-  const estimateTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
   // Which satellite imagery the map uses: our Sentinel-2 file when it's
   // configured and there, else Esri online (src/map/satellite-source.ts).
@@ -262,50 +282,30 @@ export default function MapView({
     setSearchResults(results.slice(0, 8))
   }
 
-  const saveOffline = async () => {
-    const map = mapRef.current
-    if (!map || packProgress) return
+  useEffect(() => {
+    if (openOfflineNonce > 0) setOfflineOpen(true)
+  }, [openOfflineNonce])
 
-    if (packEstimate === null) {
-      const count = estimateTileCount(map.getBounds())
-      if (count > MAX_TILES) {
-        onNotify(
-          `This view needs ~${count} tiles — zoom in to a fire-sized area first`,
-          true,
-        )
-        return
-      }
-      setPackEstimate(count)
-      clearTimeout(estimateTimer.current)
-      estimateTimer.current = setTimeout(() => setPackEstimate(null), 8000)
-      return
-    }
-
-    clearTimeout(estimateTimer.current)
-    setPackEstimate(null)
-    setPackProgress({ done: 0, total: 1 })
-    try {
-      const result = await downloadMapPack(map.getBounds(), (done, total) =>
-        setPackProgress({ done, total }),
-      )
-      onNotify(
-        `Area saved offline — ${result.fetched + result.alreadyCached} tiles ready` +
-          (result.failed ? ` (${result.failed} failed)` : ''),
-        result.failed > 0,
-      )
-    } catch (err) {
-      onNotify((err as Error).message, true)
-    } finally {
-      setPackProgress(null)
-    }
-  }
+  // Downloads carry on after the sheet closes: say when one finishes, and
+  // pick up any the app was in the middle of when it last closed.
+  useEffect(() => {
+    packDownloads.setNotifier(
+      (m) => onNotifyRef.current(`Offline map ready: ${m.name} (${formatMB(m.bytes)})`),
+      (name, message) => onNotifyRef.current(`${name}: ${message}`, true),
+    )
+    void packDownloads.resumeInterrupted(SMALL_SOURCES)
+  }, [])
 
   useEffect(() => {
     if (!containerRef.current) return
+    // Offline packs first, then the network (src/lib/packs/protocol.ts).
+    registerPackProtocol(maplibregl)
+    // Our Sentinel-2 satellite file, when configured (src/map/satellite-source.ts).
     if (SATELLITE_PMTILES_URL) registerSatelliteProtocol()
     const map = new MlMap({
       container: containerRef.current,
       style: MAP_STYLE,
+      transformRequest: packTransformRequest,
       center: [-123.37, 48.43], // Victoria, BC — replaced by geolocation when granted
       zoom: 6,
       maxPitch: 70,
@@ -664,22 +664,25 @@ export default function MapView({
         </div>
       )}
       <div className="center-crosshair" aria-hidden />
-      {/* Saved areas are served offline by the website's service worker. The
-          crew app has none of ours, so there they'd download and never be
-          used: offline areas come to it with native packs (plan Phase 0.3). */}
-      {!EMBEDDED && (
-        <button
-          className="btn offline-btn"
-          onClick={saveOffline}
-          disabled={!!packProgress}
-          title="Download basemap and terrain tiles for the current view"
-        >
-          {packProgress
-            ? `Saving… ${Math.round((packProgress.done / packProgress.total) * 100)}%`
-            : packEstimate !== null
-              ? `${packEstimate} tiles · ~${Math.max(1, Math.round((packEstimate * AVG_TILE_KB) / 1024))} MB — tap to confirm`
-              : '⬇ Save offline'}
-        </button>
+      {/* Offline maps: whole-fire packs, in the crew app (native storage) and
+          on the website (OPFS) alike. */}
+      <button
+        className="btn offline-btn"
+        onClick={() => setOfflineOpen(true)}
+        title="Save maps for offline use: a fire, an area, or this view"
+      >
+        {downloading || '⬇ Offline maps'}
+      </button>
+      {offlineOpen && (
+        <OfflineMapsSheet
+          map={mapRef.current}
+          liveFires={liveFires}
+          userFeatures={userFeatures}
+          native={EMBEDDED || hasNativeFiles()}
+          small={SMALL_SOURCES}
+          onClose={() => setOfflineOpen(false)}
+          onNotify={onNotify}
+        />
       )}
       {measureMode && (
         <div className="measure-chip">

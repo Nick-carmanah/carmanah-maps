@@ -1,6 +1,7 @@
 import type { Position } from 'geojson'
 import type { RasterDEMSourceSpecification } from 'maplibre-gl'
 import { MAP_STYLE } from '../map/basemap'
+import { packTileForUrl } from './packs/protocol'
 
 /**
  * Ground elevation at a point, read from the terrain tiles that draw the
@@ -8,9 +9,9 @@ import { MAP_STYLE } from '../map/basemap'
  * pack keeps, so a saved area answers the same with or without signal:
  * ~25 m pixels in BC, roughly ±10 m in steep ground.
  *
- * Tiles come through fetch, so on the website the service worker serves
- * saved ones offline. In the crew app this needs the same tile reader as the
- * map (native packs, plan §0).
+ * Tiles come from an offline pack when one covers the point (the same
+ * reader as the map, src/lib/packs/), else through fetch, where on the
+ * website the service worker serves saved ones offline.
  */
 
 const Z = 12
@@ -22,10 +23,17 @@ const tiles = new Map<string, Promise<Uint8ClampedArray | null>>()
 
 async function loadTile(url: string): Promise<Uint8ClampedArray | null> {
   try {
-    const res = await fetch(url)
-    if (!res.ok) return null
+    // An offline pack first (the crew app has no service worker), then the network.
+    const packed = await packTileForUrl(url).catch(() => null)
+    let blob: Blob
+    if (packed) blob = new Blob([packed], { type: 'image/png' })
+    else {
+      const res = await fetch(url)
+      if (!res.ok) return null
+      blob = await res.blob()
+    }
     // No colour management or premultiplying: the RGB values ARE the data.
-    const bitmap = await createImageBitmap(await res.blob(), {
+    const bitmap = await createImageBitmap(blob, {
       colorSpaceConversion: 'none',
       premultiplyAlpha: 'none',
     })

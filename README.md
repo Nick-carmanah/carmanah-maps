@@ -21,10 +21,14 @@ workflows, built to pair with the Carmanah Wildfire crew platform
   IndexedDB with a data-age readout so crews know how fresh it is offline.
 - **Measure** — tap-to-measure distance (km) and area (hectares) with
   geodesic math; Undo/Done chip.
-- **Save offline** — downloads all basemap + terrain tiles for the current
-  view (z6–14) plus label fonts and icons into the service-worker tile cache;
-  vector tiles stay sharp past z14. Two-tap confirm shows tile count and size
-  estimate first. Refuses areas over ~3000 tiles.
+- **Offline maps** — saves a whole fire for offline use: a live BCWS
+  perimeter, an area from My Data, or the view, plus a buffer (default 5 km).
+  Shows the exact size first (a 1,000,000 ha fire is ~30 MB), downloads in
+  resumable pieces that survive dropped signal and restarts, checks each file
+  (sha256), and draws from it with no network. Fires are cut from our own
+  hosted BC-wide map files ([docs/fire-packs.md](docs/fire-packs.md),
+  [docs/hosting-r2.md](docs/hosting-r2.md)); small areas can come straight
+  from OpenFreeMap.
 - **Offline** — imported maps persist in IndexedDB across restarts; visited map
   tiles are cached by the service worker; the app shell is a fully installable
   PWA (production build).
