@@ -22,7 +22,8 @@ Package Manager, no CocoaPods.
 | `src/fsx.ts` | Filesystem helpers (`Library/NoCloud`), timing, and the command file the Mac uses to drive runs. |
 | `scripts/make-scale-pack.ts` | Makes the synthetic 15,074-tile, 0.6 GB scale pack on the Mac (`node scripts/make-scale-pack.ts`). |
 | `scripts/serve-pack.mjs` | Range-capable localhost server for the scale pack (`npm run serve-pack`). |
-| `scripts/sim.sh` | Writes a command into the simulator app's container, relaunches it, and waits for the results JSON. |
+| `scripts/sim.sh` | Writes a command into the simulator app's container, relaunches it, and waits for the results JSON. `BUNDLE=<id>` picks another bundle id. |
+| `storage.html`, `src/storage-check.ts` | Phase 0.3 check: the app's own storage layer (`../src/lib/storage`) and Maps library on Filesystem. Imports a synthetic GeoPDF, reads every tile back by range and by `readFile` offset, writes a 9 MB file in chunks, then `deleteOwnerData`. Imports no Capacitor package unless `args.core` (like the crew app's maps page). See [`docs/owner-data.md`](../docs/owner-data.md). |
 
 ## Run it
 
@@ -51,6 +52,18 @@ scripts/sim.sh <udid> '{"page":"index","action":"bench-tiles","args":{"rounds":3
 
 ```bash
 scripts/sim.sh <udid> '{"page":"index","action":"bench-render","args":{"rounds":2,"fadeDuration":0}}'
+```
+
+Storage check (Phase 0.3). Build with a separate bundle id so it can't replace
+another session's harness install; results land in
+`.scratch/results/storage-check[-core].json`:
+
+```bash
+cd ios/App && xcodebuild -project App.xcodeproj -scheme App -configuration Debug -destination 'platform=iOS Simulator,name=iPhone 18 Pro' -derivedDataPath ../../.scratch/DerivedData PRODUCT_BUNDLE_IDENTIFIER=com.carmanahwildfire.mapsharness.storage build
+```
+
+```bash
+BUNDLE=com.carmanahwildfire.mapsharness.storage scripts/sim.sh <udid> '{"page":"storage","action":"check","args":{"owner":"sim-a"}}' 180
 ```
 
 Scale test (start `npm run serve-pack` in another terminal first, after

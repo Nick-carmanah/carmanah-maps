@@ -1,15 +1,16 @@
 import type { Position } from 'geojson'
 import { COORD_FORMATS, type CoordFormat } from './coords'
 import { declinationDeg } from './magnetic'
+import { adoptLegacyPref, ownerPrefKey, readOwnerPref, readStoredKey, writeOwnerPref } from './storage/prefs'
 
 /**
  * Units of measurement: one choice per metric, like Avenza's settings screen.
  * Every number the app shows goes through the formatters below, so changing a
  * setting changes it everywhere.
  *
- * All of it lives under ONE storage key, read and written only by
- * loadUnitSettings / saveUnitSettings. When settings become per-owner (plan
- * §0: crews share phones), only those two functions change.
+ * All of it lives under ONE storage key per person (plan §0: crews share
+ * phones), `carmanah-maps.<ownerId>.units`, read and written only by
+ * loadUnitSettings / saveUnitSettings.
  */
 
 export type DistanceUnit = 'metric' | 'imperial' | 'nautical' | 'chains'
@@ -76,18 +77,13 @@ export const MILS_PER_CIRCLE = 6400
 
 // ---- Storage ----
 
-const KEY = 'carmanah-unit-settings'
+/** This person's settings: `carmanah-maps.<ownerId>.units` (storage/prefs.ts). */
+const PREF = 'units'
+/** Before owners: one key for everyone on the website (the guest adopts it). */
+const SHARED_KEY = 'carmanah-unit-settings'
 /** Before this PR: 'metric' | 'imperial', and the readout's own format. */
 const LEGACY_UNITS_KEY = 'carmanah-units'
 const LEGACY_COORD_KEY = 'carmanah-coord-fmt'
-
-function readKey(key: string): string | null {
-  try {
-    return localStorage.getItem(key)
-  } catch {
-    return null // no storage (private mode, tests)
-  }
-}
 
 /** Keep only known values, so a stale or hand-edited entry can't break formatting. */
 export function sanitizeUnitSettings(raw: unknown): UnitSettings {
@@ -103,33 +99,49 @@ export function sanitizeUnitSettings(raw: unknown): UnitSettings {
   return out
 }
 
-export function loadUnitSettings(): UnitSettings {
-  const stored = readKey(KEY)
-  if (stored) {
-    try {
-      return sanitizeUnitSettings(JSON.parse(stored))
-    } catch {
-      // fall through to the legacy keys
-    }
+function parseStored(stored: string | null): UnitSettings | null {
+  if (!stored) return null
+  try {
+    return sanitizeUnitSettings(JSON.parse(stored))
+  } catch {
+    return null
   }
-  // First run after the upgrade: carry the old choices over unchanged.
-  // Altitude stays metres for imperial users because that's what they saw
-  // before (elevation gain was always shown in metres).
+}
+
+/** What the website had before settings were per person. */
+function legacyUnitSettings(): UnitSettings | null {
+  const shared = parseStored(readStoredKey(SHARED_KEY))
+  if (shared) return shared
+  // Older still: carry the old choices over unchanged. Altitude stays metres
+  // for imperial users because that's what they saw before (elevation gain
+  // was always shown in metres).
   const legacy: Partial<UnitSettings> = {}
-  if (readKey(LEGACY_UNITS_KEY) === 'imperial') {
+  if (readStoredKey(LEGACY_UNITS_KEY) === 'imperial') {
     Object.assign(legacy, { distance: 'imperial', area: 'ac', speed: 'mph', pace: 'min/mi' })
   }
-  const fmt = readKey(LEGACY_COORD_KEY)
+  const fmt = readStoredKey(LEGACY_COORD_KEY)
   if (fmt) legacy.coords = fmt as CoordFormat
-  return sanitizeUnitSettings({ ...DEFAULT_UNIT_SETTINGS, ...legacy })
+  return Object.keys(legacy).length ? sanitizeUnitSettings({ ...DEFAULT_UNIT_SETTINGS, ...legacy }) : null
+}
+
+/** This page's person's settings; defaults for someone new on this phone. */
+export function loadUnitSettings(): UnitSettings {
+  const own = parseStored(readOwnerPref(PREF))
+  if (own) return own
+  // The guest's first run with per-person settings: take over the website's.
+  if (adoptLegacyPref(PREF)) {
+    const legacy = legacyUnitSettings()
+    if (legacy) {
+      saveUnitSettings(legacy)
+      return legacy
+    }
+  }
+  return { ...DEFAULT_UNIT_SETTINGS }
 }
 
 function saveUnitSettings(settings: UnitSettings): void {
-  try {
-    localStorage.setItem(KEY, JSON.stringify(settings))
-  } catch {
-    // Storage full or unavailable: the choice still holds for this session.
-  }
+  // Storage full or unavailable: the choice still holds for this session.
+  writeOwnerPref(PREF, JSON.stringify(settings))
 }
 
 let current: UnitSettings = loadUnitSettings()
@@ -153,7 +165,7 @@ export function subscribeUnitSettings(listener: () => void): () => void {
 // Another tab changed them (website only; the app has one page).
 if (typeof window !== 'undefined') {
   window.addEventListener('storage', (e) => {
-    if (e.key !== KEY) return
+    if (e.key !== ownerPrefKey(PREF)) return
     current = loadUnitSettings()
     for (const listener of listeners) listener()
   })

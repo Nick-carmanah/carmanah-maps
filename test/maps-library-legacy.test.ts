@@ -1,7 +1,9 @@
 /**
- * GeoPDFs saved before the Maps library (a PNG and corners in the old shared
- * database, store.ts `rasters`) must keep showing: the guest library adopts
- * each one as a 'legacy' map, once, and nobody else's library sees them.
+ * GeoPDFs saved before the Maps library (a PNG and corners in store.ts
+ * `rasters`) must keep showing: the guest library adopts each one as a
+ * 'legacy' map, once, and nobody else's library sees them. (They are seeded
+ * here through store.ts, i.e. in the guest's own database; the copy from the
+ * old shared database is covered in owner-storage.test.ts.)
  *
  * Runs on an in-memory IndexedDB. No OPFS here, so files fall back to
  * IndexedDB, and no createImageBitmap, so adopted maps get no thumbnail
@@ -26,7 +28,7 @@ async function pageLoad() {
 
 describe('legacy GeoPDF adoption', () => {
   beforeAll(async () => {
-    // What main saved before the library: two maps in the shared database.
+    // What main saved before the library: two maps (already moved to the guest).
     const { store } = await pageLoad()
     await store.saveRaster({ id: 'old-a', name: 'Old map A', addedAt: 1_000, corners: CORNERS_A, image: png(300) })
     await store.saveRaster({ id: 'old-b', name: 'Old map B', addedAt: 2_000, corners: CORNERS_B, image: png(500) })

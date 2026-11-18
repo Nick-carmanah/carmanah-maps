@@ -3,26 +3,43 @@
  * e.g. "Edge_JUL11_K61067_2P14". GIS-safe per BCWS GIS guidance:
  * no spaces, no punctuation, underscores between words.
  */
+import { adoptLegacyPref, readOwnerPref, readStoredKey, writeOwnerPref } from './storage/prefs'
 
 export interface Profile {
   callsign: string
   fireNumber: string
 }
 
-const KEY = 'carmanah-profile'
+/** Per person (plan §0, shared phones): `carmanah-maps.<ownerId>.profile`. */
+const PREF = 'profile'
+/** Before owners: one profile for everyone on the website (the guest adopts it). */
+const SHARED_KEY = 'carmanah-profile'
 
-export function getProfile(): Profile {
+function parseProfile(raw: string | null): Profile | null {
   try {
-    const raw = localStorage.getItem(KEY)
     if (raw) return { callsign: '', fireNumber: '', ...JSON.parse(raw) }
   } catch {
-    // fall through to empty profile
+    // fall through
+  }
+  return null
+}
+
+export function getProfile(): Profile {
+  const own = parseProfile(readOwnerPref(PREF))
+  if (own) return own
+  if (adoptLegacyPref(PREF)) {
+    const raw = readStoredKey(SHARED_KEY)
+    const legacy = parseProfile(raw)
+    if (legacy && raw) {
+      writeOwnerPref(PREF, raw)
+      return legacy
+    }
   }
   return { callsign: '', fireNumber: '' }
 }
 
 export function saveProfile(profile: Profile): void {
-  localStorage.setItem(KEY, JSON.stringify(profile))
+  writeOwnerPref(PREF, JSON.stringify(profile))
 }
 
 /** True when the user has set up a profile — enables convention naming. */

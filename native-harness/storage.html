@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <!-- Offline like index.html: no http(s) at all. Workers and blobs for pdf.js. -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' capacitor://localhost; script-src 'self' capacitor://localhost 'wasm-unsafe-eval'; style-src 'self' capacitor://localhost 'unsafe-inline'; img-src 'self' capacitor://localhost data: blob:; font-src 'self' capacitor://localhost data: blob:; connect-src 'self' capacitor://localhost data: blob:; worker-src 'self' capacitor://localhost blob:; child-src blob:; frame-src 'none'; object-src 'none'; base-uri 'none'" />
+    <title>Storage check</title>
+    <style>
+      body { margin: 0; padding: env(safe-area-inset-top) 12px 12px; background: #1a1a1a; color: #e5e5e5; font: 12px/1.4 ui-monospace, monospace; }
+      pre { white-space: pre-wrap; word-break: break-all; }
+    </style>
+  </head>
+  <body>
+    <h3>Phase 0.3 storage check</h3>
+    <pre id="out">starting…</pre>
+    <script type="module" src="/src/storage-check.ts"></script>
+  </body>
+</html>

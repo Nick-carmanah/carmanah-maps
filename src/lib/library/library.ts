@@ -102,10 +102,10 @@ export class MapsLibrary {
   }
 
   /**
-   * Maps imported before the library live in the old shared database
-   * (store.ts `rasters`), as a PNG and corners only. Give each a library
-   * record so it shows, folds and fades like any other map. Their image stays
-   * where it is; deleting the map deletes it there.
+   * Maps imported before the library are a PNG and corners only, in store.ts
+   * `rasters` (copied from the old shared database into the guest's own).
+   * Give each a library record so it shows, folds and fades like any other
+   * map. Their image stays where it is; deleting the map deletes it there.
    */
   private async adoptLegacyMaps(): Promise<void> {
     const legacy = await listRasters()
