@@ -8,6 +8,7 @@ import proj4 from 'proj4'
 // build-satellite.ts need the folder's own dependencies, so they aren't
 // imported here.
 import { areaFromRings, countTiles, insideRings, tileTouchesArea } from '../scripts/imagery/lib/area'
+import { addImageryEntry, imageryKey, type Catalog, type ImageryEntry } from '../scripts/imagery/lib/catalog'
 import { alphaStats, downsample, drawTile, planTile, type Block, type SourceRaster } from '../scripts/imagery/lib/render'
 import { presignGetUrl, parseS3Url } from '../scripts/imagery/lib/s3-presign'
 import { previousQuarter, quarterOf, quarterStart } from '../scripts/imagery/lib/sources'
@@ -321,6 +322,52 @@ describe('PMTiles output', () => {
       expect(new TextDecoder().decode(got!.data)).toBe(`${z}/${x}/${y}`)
     }
     expect(await pm.getZxy(13, 1328, 2770)).toBeUndefined()
+  })
+})
+
+describe('bucket catalog', () => {
+  const entry = (period: string, area = 'bc'): ImageryEntry => ({
+    area,
+    product: 's2-quarterly',
+    period,
+    url: imageryKey('s2-quarterly', area, period),
+    bounds: [-139.1, 48.2, -114, 60],
+    minzoom: 0,
+    maxzoom: 13,
+    bytes: 1,
+    format: 'webp',
+    attribution: 'Contains modified Copernicus Sentinel data 2026',
+    licence: 'Copernicus Sentinel data: free, full and open',
+  })
+
+  it('uses the bucket layout key (docs/hosting-r2.md)', () => {
+    expect(imageryKey('s2-quarterly', 'bc', '2026-q3')).toBe('imagery/s2-quarterly/bc/2026-q3.pmtiles')
+  })
+
+  it('adds the entry under sources.imagery, keeping the rest of the catalog', () => {
+    const existing: Catalog = {
+      format: 'carmanah-catalog',
+      version: 1,
+      updated: '2026-11-18T20:00:00Z',
+      sources: {
+        basemap: [{ area: 'bc', url: 'basemap/bc/20261115_080022_pt.pmtiles' }],
+        imagery: [entry('2026-q2'), entry('2026-q2', 'lytton')],
+      },
+      packs: [{ id: 'c40983-20261118' }],
+    }
+    const next = addImageryEntry(existing, entry('2026-q3'), new Date('2026-11-19T01:02:03.456Z'))
+    expect(next.updated).toBe('2026-11-19T01:02:03Z')
+    expect(next.sources.basemap).toEqual(existing.sources.basemap)
+    expect(next.packs).toEqual(existing.packs)
+    // The same area and product is replaced; other areas stay.
+    expect(next.sources.imagery!.map((e) => `${e.area} ${e.period}`)).toEqual(['lytton 2026-q2', 'bc 2026-q3'])
+  })
+
+  it('starts a catalog when there is none, and refuses an unknown one', () => {
+    const fresh = addImageryEntry(null, entry('2026-q3'))
+    expect(fresh).toMatchObject({ format: 'carmanah-catalog', version: 1, packs: [] })
+    expect(fresh.sources.imagery).toHaveLength(1)
+    expect(() => addImageryEntry({ ...fresh, version: 2 as 1 }, entry('2026-q3'))).toThrow(/expected carmanah-catalog v1/)
   })
 })
 

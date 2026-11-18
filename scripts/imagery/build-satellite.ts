@@ -5,21 +5,23 @@
 //   node build-satellite.ts --estimate            # tile counts and sizes only, no keys needed
 //   node build-satellite.ts --source aws-l2a --bbox=-121.70,50.17,-121.45,50.33 --name lytton
 //
-// Output goes under samples/bucket/ (git ignores samples/) at the key it will
-// have in the R2 bucket (docs/hosting-r2.md): imagery/s2/<area>/<year>q<n>.pmtiles.
-// Nothing is uploaded; the build prints the upload command and the
-// catalog.json entry.
+// Output goes under samples/bucket/ (git ignores samples/), a local copy of
+// the R2 bucket (docs/hosting-r2.md): the file at its bucket key,
+// imagery/s2-quarterly/<area>/<year>-q<n>.pmtiles, and its entry added to
+// catalog.json "sources.imagery". Nothing is uploaded; the build prints the
+// upload commands.
 //
 // Credentials (CDSE S3 keys) are read only from the environment:
 //   CDSE_S3_ACCESS_KEY, CDSE_S3_SECRET_KEY
 // They are never printed or written anywhere.
 
-import { mkdirSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 import sharp from 'sharp'
 import { areaFromBbox, areaFromRings, countTiles, tileTouchesArea, type Area } from './lib/area.ts'
+import { addImageryEntry, COPERNICUS_LICENCE, imageryKey, type Catalog } from './lib/catalog.ts'
 import { PmTileType, PmCompression } from '../../src/lib/pmtiles-writer.ts'
 import { SpoolWriter } from './lib/pmtiles-out.ts'
 import { BlockCache, limitFetch, openSource, type OpenSource, type SourceSpec } from './lib/raster.ts'
@@ -176,11 +178,12 @@ async function build(area: Area): Promise<void> {
 
   // Bucket key (docs/hosting-r2.md): imagery/<product>/<area>/<period>.pmtiles.
   // Immutable once uploaded: a new quarter is a new key.
+  const product = args.source === 'cdse' ? 's2-quarterly' : 's2-l2a'
   const period =
     args.source === 'cdse'
-      ? label.slice(-7).toLowerCase().replace('-', '') // 2026q3
-      : specs.map((s) => s.date.replace(/-/g, '')).sort().at(-1)! // newest scene, 20260918
-  const key = `imagery/${args.source === 'cdse' ? 's2' : 's2-l2a'}/${area.name}/${period}.pmtiles`
+      ? label.slice(-7).toLowerCase() // 2026-q3
+      : specs.map((s) => s.date).sort().at(-1)! // newest scene, 2026-09-18
+  const key = imageryKey(product, area.name, period)
   const outPath = resolve(args.out!, key)
   mkdirSync(dirname(outPath), { recursive: true })
   const spool = new SpoolWriter(outPath, args.resume!)
@@ -273,22 +276,35 @@ async function build(area: Area): Promise<void> {
       `${(result.bytes / result.tiles / 1000).toFixed(1)} KB a tile, ${cache.loaded} blocks read, ${Math.round(secs)} s\n` +
       `  Credit: ${attribution}`,
   )
-  // What publishing needs (docs/hosting-r2.md): the upload, then this entry
-  // under catalog.json "sources.imagery", then the app's satellite URL.
-  const entry = {
+  // The entry under catalog.json "sources.imagery" in the local bucket copy
+  // (same shape as basemap and terrain; the bucket's LICENSE.txt points to it
+  // for the licence and credit).
+  const catalogPath = resolve(args.out!, 'catalog.json')
+  const catalog = existsSync(catalogPath) ? (JSON.parse(readFileSync(catalogPath, 'utf8')) as Catalog) : null
+  const updated = addImageryEntry(catalog, {
     area: area.name,
-    url: key,
+    product,
     period,
-    product: args.source === 'cdse' ? 'sentinel-2-quarterly-mosaic' : 'sentinel-2-l2a',
+    url: key,
     bounds: area.bbox,
     minzoom: 0,
     maxzoom: maxZoom,
     bytes: statSync(outPath).size,
+    format,
     attribution,
-  }
-  console.log(`\nTo publish (nothing was uploaded):\n  node scripts/packs/upload.ts "${relative(REPO, outPath)}" ${key}`)
-  console.log(`  catalog.json sources.imagery entry:\n  ${JSON.stringify(entry)}`)
-  console.log(`  App: VITE_SATELLITE_PMTILES_URL=<bucket URL>/${key} in .env`)
+    licence: COPERNICUS_LICENCE,
+  })
+  writeFileSync(catalogPath, JSON.stringify(updated, null, 2) + '\n')
+  console.log(`  Catalog: ${relative(REPO, catalogPath)} (sources.imagery, ${area.name} ${product} ${period})`)
+  // Publishing (docs/hosting-r2.md): the file first, the catalog last, so a
+  // phone never sees an entry before its file.
+  const local = (p: string) => `"${relative(REPO, p)}"`
+  console.log(
+    `\nTo publish (nothing was uploaded):\n` +
+      `  node scripts/packs/upload.ts ${local(outPath)} ${key}\n` +
+      `  node scripts/packs/upload.ts ${local(catalogPath)} catalog.json\n` +
+      `  App: VITE_SATELLITE_PMTILES_URL=<bucket URL>/${key} in .env`,
+  )
 }
 
 const area = loadArea()

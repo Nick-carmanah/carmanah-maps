@@ -331,7 +331,8 @@ What it takes (now built, see "Decision" above):
   was based on EOX's JPEGs; measured WebP tiles are 8–11 KB, and z14 adds
   no detail to 10 m data.) Gaps a quarter never saw clearly are filled from
   the quarter before.
-- Hosting on R2 (docs/hosting-r2.md, `imagery/s2/bc/<year>q<n>.pmtiles`),
+- Hosting on R2 (docs/hosting-r2.md, `imagery/s2-quarterly/bc/<year>-q<n>.pmtiles`
+  plus a `catalog.json` `sources.imagery` entry),
   and saved areas taught to include satellite.
 - A refresh each season (more often during a big fire year if wanted).
 - The credit on screen and on every exported map:

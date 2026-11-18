@@ -108,10 +108,24 @@ Options:
 | `--concurrency` | 4 (cdse), 8 | HTTP connections |
 | `--cache-mb` | 1500 | decoded band blocks kept in memory |
 
-Output goes to `samples/bucket/imagery/s2/<area>/<year>q<n>.pmtiles`
-(`s2-l2a` for test builds), which is the key the file will have in the
-bucket. At the end the build prints the upload command and the
-`catalog.json` entry.
+Output goes to `samples/bucket/`, a local copy of the R2 bucket
+([docs/hosting-r2.md](../../docs/hosting-r2.md)):
+
+- **The file**, at the key it will have in the bucket:
+  `imagery/<product>/<area>/<period>.pmtiles`. For example
+  `imagery/s2-quarterly/bc/2026-q3.pmtiles`; test builds use product
+  `s2-l2a` and the scene date as the period.
+- **Its entry in `catalog.json` → `sources.imagery`**, the same shape as the
+  basemap and terrain entries: `area`, `product`, `period`, `url`, `bounds`,
+  `minzoom`, `maxzoom`, `bytes`, `format`, `attribution` and `licence`.
+  The bucket's `LICENSE.txt` points to this entry for each imagery file's
+  credit. A new build replaces the entry for the same area and product and
+  leaves everything else in the catalog alone.
+
+The file is a clustered PMTiles v3: tiles in tile-id order, about 9 KB
+each, with no tile or directory compression. So the fire-packs code can cut
+a fire's area out of it on the phone with Range reads, as it does for the
+basemap and terrain.
 
 ## How it works
 
@@ -141,7 +155,7 @@ node scripts/imagery/serve.ts
 ```
 
 ```bash
-VITE_SATELLITE_PMTILES_URL=http://127.0.0.1:8790/imagery/s2-l2a/lytton/20260918.pmtiles npm run dev
+VITE_SATELLITE_PMTILES_URL=http://127.0.0.1:8790/imagery/s2-l2a/lytton/2026-09-18.pmtiles npm run dev
 ```
 
 Then choose Satellite and go to Lytton. `serve.ts` answers Range requests
@@ -151,11 +165,22 @@ with 206, ETags and CORS, like R2. Once the fire-packs tools are merged,
 ## Publish
 
 Nothing here uploads. With the fire-packs tools ([docs/hosting-r2.md](../../docs/hosting-r2.md)),
-do these in order:
+use the commands the build printed, in this order:
 
-1. Upload the file with the command the build printed:
-   `node scripts/packs/upload.ts "<file>" imagery/s2/bc/2026q3.pmtiles`.
-2. Add the printed entry under `catalog.json` → `sources.imagery`.
+1. Upload the file first:
+
+   ```bash
+   node scripts/packs/upload.ts "samples/bucket/imagery/s2-quarterly/bc/2026-q3.pmtiles" imagery/s2-quarterly/bc/2026-q3.pmtiles
+   ```
+
+2. Then upload the catalog. If the pack builder also keeps a
+   `samples/bucket/catalog.json`, it's the same file: the imagery entry is
+   added to it.
+
+   ```bash
+   node scripts/packs/upload.ts samples/bucket/catalog.json catalog.json
+   ```
+
 3. Set `VITE_SATELLITE_PMTILES_URL` in `.env` to the file's public URL and
    rebuild the app.
 
