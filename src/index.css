@@ -1045,3 +1045,126 @@ html, body, #root {
 .maplibregl-ctrl-group button {
   filter: invert(0.85);
 }
+
+/* ---- Layers (My Data tree, layer sheet, export sheet) ---- */
+
+.layer-panel .layer-row .tree-toggle {
+  width: 18px;
+  padding: 0;
+  font-size: 12px;
+}
+
+.layer-panel .layer-row .tree-toggle:disabled {
+  cursor: default;
+  color: #555;
+}
+
+.layer-field select,
+.attr-row select {
+  background: #2a2a2a;
+  border: 1px solid #444;
+  border-radius: 6px;
+  color: #eee;
+  font-size: 12px;
+  padding: 6px 8px;
+  min-width: 0;
+}
+
+.layer-field select {
+  flex: 1;
+}
+
+.layer-sheet .layer-field {
+  flex-wrap: wrap;
+}
+
+.attr-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: #999;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.attr-row .attr-label {
+  flex: 0 0 32%;
+  font-size: 12px;
+  color: #bbb;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attr-row select {
+  flex: 1;
+}
+
+.attr-row input.invalid {
+  border-color: #b45309;
+}
+
+.schema-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #2e2e2e;
+}
+
+.picklist-input {
+  background: #222;
+  border: 1px solid #3a3a3a;
+  border-radius: 6px;
+  color: #ddd;
+  font-size: 12px;
+  padding: 6px 8px;
+  resize: vertical;
+  font-family: inherit;
+}
+
+.symbol-btn .imported-icon {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+}
+
+.export-layers {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 30vh;
+  overflow-y: auto;
+  border: 1px solid #2e2e2e;
+  border-radius: 8px;
+  padding: 6px 8px;
+}
+
+.export-layer-actions {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.export-layer,
+.export-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  padding: 4px 0;
+}
+
+.export-layer .meta {
+  color: #888;
+  font-size: 11px;
+}
+
+.export-sheet .btn.primary:disabled {
+  opacity: 0.5;
+}
+
+.export-sheet .sheet-title,
+.layer-sheet .sheet-title {
+  flex: 1;
+  font-weight: 600;
+}

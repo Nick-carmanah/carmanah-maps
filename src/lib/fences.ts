@@ -50,7 +50,10 @@ export function insideFence(position: Position, feature: UserFeature): boolean {
   if (feature.kind === 'line') {
     return distToPolylineM(position, feature.coordinates as Position[]) <= radius
   }
-  return pointInRing(position, feature.coordinates as Position[])
+  return (
+    pointInRing(position, feature.coordinates as Position[]) &&
+    !(feature.holes ?? []).some((h) => pointInRing(position, h))
+  )
 }
 
 /** Circle polygon (for drawing pin fences on the map). */

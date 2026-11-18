@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import maplibregl, { Map as MlMap, Popup } from 'maplibre-gl'
+import maplibregl, { Map as MlMap, Popup, type LngLatBoundsLike } from 'maplibre-gl'
 import type { FeatureCollection, Position } from 'geojson'
-import type { Overlay, RasterOverlay } from '../lib/store'
+import { getIcon, type RasterOverlay } from '../lib/store'
 import { boundsOf, boundsOfPositions } from '../lib/geo'
 import {
   formatArea,
@@ -12,12 +12,14 @@ import {
 } from '../lib/measure'
 import { STATUS_COLORS, STATUS_FALLBACK_COLOR, type LiveFires } from '../lib/livefires'
 import {
+  DEFAULT_FILL_OPACITY,
+  DEFAULT_LINE_WIDTH,
   FIRE_SYMBOLS,
-  featureLayer,
   featuresToGeoJSON,
   renderSymbolImage,
   type UserFeature,
 } from '../lib/features'
+import { ICON_PREFIX } from '../lib/symbols'
 import { fenceShapes } from '../lib/fences'
 import { buildGrid } from '../lib/grid'
 import { NWCG_SYMBOLS, nwcgIconUrl } from '../lib/nwcg'
@@ -36,15 +38,13 @@ import {
 } from '../lib/mappacks'
 import { BASEMAP_LAYER_IDS, MAP_STYLE } from './basemap'
 
-const DEFAULT_STROKE = '#e11d1d'
-const DEFAULT_FILL = '#e11d1d'
-
 interface MapViewProps {
-  overlays: Overlay[]
   rasterOverlays: RasterOverlay[]
+  /** Hidden raster (GeoPDF) ids. */
   hiddenIds: Set<string>
-  /** Overlay id the map should fly to (changes trigger a fit). */
-  focusRequest: { id: string; nonce: number } | null
+  /** Raster or feature id the map should fly to, or explicit bounds (a
+   * layer's extent). Changes trigger a fit. */
+  focusRequest: { id: string; nonce: number; bounds?: LngLatBoundsLike | null } | null
   measureMode: boolean
   onExitMeasure: () => void
   /** Save the current measurement sketch as a persistent line/area. */
@@ -54,8 +54,8 @@ interface MapViewProps {
   /** Show/hide the BCWS perimeter polygons (points stay visible). */
   showLivePerimeters: boolean
   userFeatures: UserFeature[]
-  /** Layer names currently hidden in the panel. */
-  hiddenLayers: Set<string>
+  /** Ids of layers not drawn (hidden themselves or under a hidden parent). */
+  hiddenLayerIds: Set<string>
   /** UTM grid overlay on/off. */
   showGrid: boolean
   /** Live GPS track being recorded (empty when not recording). */
@@ -75,7 +75,6 @@ interface MapViewProps {
 }
 
 export default function MapView({
-  overlays,
   rasterOverlays,
   hiddenIds,
   focusRequest,
@@ -85,7 +84,7 @@ export default function MapView({
   liveFires,
   showLivePerimeters,
   userFeatures,
-  hiddenLayers,
+  hiddenLayerIds,
   showGrid,
   trackPoints,
   navLine,
@@ -100,8 +99,6 @@ export default function MapView({
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<MlMap | null>(null)
   const loadedRef = useRef(false)
-  const overlaysRef = useRef<Overlay[]>(overlays)
-  overlaysRef.current = overlays
   const rasterOverlaysRef = useRef<RasterOverlay[]>(rasterOverlays)
   rasterOverlaysRef.current = rasterOverlays
   const rasterUrlsRef = useRef<Map<string, string>>(new Map())
@@ -122,8 +119,8 @@ export default function MapView({
   }, [units])
   const userFeaturesRef = useRef<UserFeature[]>(userFeatures)
   userFeaturesRef.current = userFeatures
-  const hiddenLayersRef = useRef(hiddenLayers)
-  hiddenLayersRef.current = hiddenLayers
+  const hiddenLayerIdsRef = useRef(hiddenLayerIds)
+  hiddenLayerIdsRef.current = hiddenLayerIds
   const hiddenIdsRef = useRef(hiddenIds)
   hiddenIdsRef.current = hiddenIds
   const showGridRef = useRef(showGrid)
@@ -202,29 +199,13 @@ export default function MapView({
     }
     const results: { name: string; detail: string; position: Position }[] = []
     for (const f of userFeaturesRef.current) {
+      if (hiddenLayerIdsRef.current.has(f.layerId)) continue
       if (f.name.toLowerCase().includes(q)) {
         results.push({
           name: f.name,
           detail: `My Data · ${f.kind}`,
           position: f.kind === 'pin' ? (f.coordinates as Position) : (f.coordinates as Position[])[0],
         })
-      }
-    }
-    for (const overlay of overlaysRef.current) {
-      for (const feat of overlay.geojson.features) {
-        const name = feat.properties?.name
-        if (
-          typeof name === 'string' &&
-          name.toLowerCase().includes(q) &&
-          feat.geometry &&
-          'coordinates' in feat.geometry
-        ) {
-          results.push({
-            name,
-            detail: overlay.name,
-            position: firstPosition(feat.geometry.coordinates),
-          })
-        }
       }
     }
     for (const feat of liveFiresRef.current?.points.features ?? []) {
@@ -304,8 +285,22 @@ export default function MapView({
     ;(window as unknown as Record<string, unknown>).__map = map
     map.on('error', (e) => console.error('[map error]', e.error?.message ?? e))
 
-    // NWCG icons load lazily the first time a feature references one.
+    // NWCG icons and icons restored from imported KMZ files load lazily the
+    // first time a feature references one.
     map.on('styleimagemissing', async (e) => {
+      if (e.id.startsWith(`sym-${ICON_PREFIX}`)) {
+        const asset = await getIcon(e.id.slice(`sym-${ICON_PREFIX}`.length))
+        if (!asset || map.hasImage(e.id)) return
+        try {
+          const bitmap = await createImageBitmap(asset.blob)
+          // Show imported icons at about 28 px, whatever size they were saved at.
+          const pixelRatio = Math.max(1, Math.max(bitmap.width, bitmap.height) / 28)
+          if (!map.hasImage(e.id)) map.addImage(e.id, bitmap, { pixelRatio })
+        } catch {
+          // unreadable image — the pin shows without an icon
+        }
+        return
+      }
       if (!e.id.startsWith('sym-nwcg-')) return
       const spec = NWCG_SYMBOLS.find((s) => `sym-${s.key}` === e.id)
       if (!spec) return
@@ -357,22 +352,23 @@ export default function MapView({
       addNavLayers(map)
       addCoordMarkerLayer(map)
       addMeasureLayers(map)
-      syncOverlays(map, overlaysRef.current)
       setLiveFireData(map, liveFiresRef.current)
       if (!showLivePerimetersRef.current) {
         map.setLayoutProperty('live-perim-fill', 'visibility', 'none')
         map.setLayoutProperty('live-perim-line', 'visibility', 'none')
       }
       if (basemapRef.current === 'satellite') showBasemap(map, 'satellite')
-      setUserFeatureData(map, userFeaturesRef.current, hiddenLayersRef.current)
+      setUserFeatureData(map, userFeaturesRef.current, hiddenLayerIdsRef.current)
       ;(map.getSource('fences') as maplibregl.GeoJSONSource | undefined)?.setData(
-        fenceShapes(userFeaturesRef.current),
+        fenceShapes(
+          userFeaturesRef.current.filter((f) => !hiddenLayerIdsRef.current.has(f.layerId)),
+        ),
       )
       updateGrid(map, showGridRef.current)
     })
 
-    // Tap priority: measuring > dropping a pin > editing your own features >
-    // info popups for imported/live features.
+    // Tap priority: measuring > dropping a pin > editing a My Data feature
+    // (drawn or imported) > info popups for live fires.
     map.on('click', (e) => {
       if (measureModeRef.current) {
         setMeasurePoints((prev) => [...prev, [e.lngLat.lng, e.lngLat.lat]])
@@ -387,9 +383,7 @@ export default function MapView({
         .queryRenderedFeatures(e.point)
         .find(
           (f) =>
-            (f.layer.id.startsWith('ov-') ||
-              f.layer.id.startsWith('live-') ||
-              f.layer.id.startsWith('uf-')) &&
+            (f.layer.id.startsWith('live-') || f.layer.id.startsWith('uf-')) &&
             !f.layer.id.endsWith('-label'),
         )
       if (!rendered) return
@@ -397,12 +391,7 @@ export default function MapView({
         onEditFeatureRef.current(String(rendered.properties?.id))
         return
       }
-      const props = rendered.properties ?? {}
-      const { name, description } = rendered.layer.id.startsWith('live-')
-        ? liveFirePopupContent(props)
-        : // Shapefile attributes are commonly uppercase.
-          { name: props.name ?? props.NAME ?? props.Name, description: props.description }
-      if (!name && !description) return
+      const { name, description } = liveFirePopupContent(rendered.properties ?? {})
       const html = `<div style="max-width:240px;color:#111">
         ${name ? `<strong>${escapeHtml(String(name))}</strong>` : ''}
         ${description ? `<div style="margin-top:4px;font-size:12px">${escapeHtml(String(description)).slice(0, 500)}</div>` : ''}
@@ -420,13 +409,6 @@ export default function MapView({
     }
   }, [])
 
-  // Add/remove overlay sources & layers when the overlay list changes.
-  useEffect(() => {
-    const map = mapRef.current
-    if (!map || !loadedRef.current) return
-    syncOverlays(map, overlays)
-  }, [overlays])
-
   // Add/remove raster (e.g. GeoPDF) image sources when the list changes.
   useEffect(() => {
     const map = mapRef.current
@@ -434,36 +416,31 @@ export default function MapView({
     syncRasterOverlays(map, rasterOverlays, hiddenIds, rasterUrlsRef.current)
   }, [rasterOverlays, hiddenIds])
 
-  // Toggle visibility.
+  // Toggle raster visibility.
   useEffect(() => {
     const map = mapRef.current
     if (!map || !loadedRef.current) return
-    for (const overlay of overlays) {
-      const visible = hiddenIds.has(overlay.id) ? 'none' : 'visible'
-      for (const suffix of ['fill', 'line', 'point', 'label']) {
-        const layerId = `ov-${overlay.id}-${suffix}`
-        if (map.getLayer(layerId)) {
-          map.setLayoutProperty(layerId, 'visibility', visible)
-        }
-      }
-    }
     for (const raster of rasterOverlays) {
       const layerId = `raster-${raster.id}`
       if (map.getLayer(layerId)) {
         map.setLayoutProperty(layerId, 'visibility', hiddenIds.has(raster.id) ? 'none' : 'visible')
       }
     }
-  }, [overlays, rasterOverlays, hiddenIds])
+  }, [rasterOverlays, hiddenIds])
 
-  // Fly to an overlay or user feature on request.
+  // Fly to a raster, a feature, or explicit bounds on request.
   useEffect(() => {
     const map = mapRef.current
     if (!map || !focusRequest) return
-    const overlay = overlaysRef.current.find((o) => o.id === focusRequest.id)
     const feature = userFeaturesRef.current.find((f) => f.id === focusRequest.id)
     const raster = rasterOverlaysRef.current.find((r) => r.id === focusRequest.id)
-    const geojson = overlay?.geojson ?? (feature ? featuresToGeoJSON([feature]) : null)
-    const bounds = raster ? boundsOfPositions(raster.corners) : geojson ? boundsOf(geojson) : null
+    const bounds =
+      focusRequest.bounds ??
+      (raster
+        ? boundsOfPositions(raster.corners)
+        : feature
+          ? boundsOf(featuresToGeoJSON([feature]))
+          : null)
     if (bounds) {
       map.fitBounds(bounds, { padding: 60, maxZoom: 14, duration: 800 })
     }
@@ -512,10 +489,10 @@ export default function MapView({
   useEffect(() => {
     const map = mapRef.current
     if (!map || !loadedRef.current) return
-    setUserFeatureData(map, userFeatures, hiddenLayers)
+    setUserFeatureData(map, userFeatures, hiddenLayerIds)
     const fences = map.getSource('fences') as maplibregl.GeoJSONSource | undefined
-    fences?.setData(fenceShapes(userFeatures.filter((f) => !hiddenLayers.has(featureLayer(f)))))
-  }, [userFeatures, hiddenLayers])
+    fences?.setData(fenceShapes(userFeatures.filter((f) => !hiddenLayerIds.has(f.layerId))))
+  }, [userFeatures, hiddenLayerIds])
 
   // Grid toggle.
   useEffect(() => {
@@ -787,14 +764,20 @@ function addUserFeatureLayers(map: MlMap) {
     type: 'fill',
     source: 'user-features',
     filter: ['==', ['geometry-type'], 'Polygon'],
-    paint: { 'fill-color': ['get', 'color'], 'fill-opacity': 0.25 },
+    paint: {
+      'fill-color': ['coalesce', ['get', 'fill'], ['get', 'color']],
+      'fill-opacity': ['coalesce', ['get', 'fillOpacity'], DEFAULT_FILL_OPACITY],
+    },
   })
   map.addLayer({
     id: 'uf-line',
     type: 'line',
     source: 'user-features',
     filter: ['in', ['geometry-type'], ['literal', ['Polygon', 'LineString']]],
-    paint: { 'line-color': ['get', 'color'], 'line-width': 3 },
+    paint: {
+      'line-color': ['get', 'color'],
+      'line-width': ['coalesce', ['get', 'width'], DEFAULT_LINE_WIDTH],
+    },
   })
   // Plain dot for pins without a symbol…
   map.addLayer({
@@ -849,11 +832,9 @@ function addUserFeatureLayers(map: MlMap) {
   })
 }
 
-function setUserFeatureData(map: MlMap, features: UserFeature[], hiddenLayers: Set<string>) {
+function setUserFeatureData(map: MlMap, features: UserFeature[], hiddenLayerIds: Set<string>) {
   const source = map.getSource('user-features') as maplibregl.GeoJSONSource | undefined
-  source?.setData(
-    featuresToGeoJSON(features.filter((f) => !hiddenLayers.has(featureLayer(f)))),
-  )
+  source?.setData(featuresToGeoJSON(features.filter((f) => !hiddenLayerIds.has(f.layerId))))
 }
 
 function showBasemap(map: MlMap, basemap: 'streets' | 'satellite') {
@@ -987,13 +968,6 @@ function addTrackLayers(map: MlMap) {
   })
 }
 
-/** First [lng, lat] in any (nested) coordinate array. */
-function firstPosition(coords: unknown): Position {
-  let c = coords as unknown[]
-  while (Array.isArray(c[0])) c = c[0] as unknown[]
-  return c as Position
-}
-
 function addNavLayers(map: MlMap) {
   map.addSource('nav', { type: 'geojson', data: EMPTY_FC })
   map.addLayer({
@@ -1054,91 +1028,6 @@ function addMeasureLayers(map: MlMap) {
       'circle-stroke-color': '#1a1a1a',
     },
   })
-}
-
-function syncOverlays(map: MlMap, overlays: Overlay[]) {
-  const wantedSources = new Set(overlays.map((o) => `ov-${o.id}`))
-
-  // Remove layers/sources for deleted overlays.
-  for (const layer of map.getStyle().layers ?? []) {
-    if (layer.id.startsWith('ov-')) {
-      const sourceId = layer.id.replace(/-(fill|line|point|label)$/, '')
-      if (!wantedSources.has(sourceId)) map.removeLayer(layer.id)
-    }
-  }
-  for (const sourceId of Object.keys(map.getStyle().sources ?? {})) {
-    if (sourceId.startsWith('ov-') && !wantedSources.has(sourceId)) {
-      map.removeSource(sourceId)
-    }
-  }
-
-  // Keep imported overlays below the user's own drawings and measurements.
-  const beforeId = map.getLayer('uf-fill')
-    ? 'uf-fill'
-    : map.getLayer('measure-fill')
-      ? 'measure-fill'
-      : undefined
-
-  for (const overlay of overlays) {
-    const sourceId = `ov-${overlay.id}`
-    if (map.getSource(sourceId)) continue
-
-    map.addSource(sourceId, { type: 'geojson', data: overlay.geojson })
-
-    // togeojson carries KML styles through as simplestyle props (stroke, fill…).
-    map.addLayer({
-      id: `${sourceId}-fill`,
-      type: 'fill',
-      source: sourceId,
-      filter: ['==', ['geometry-type'], 'Polygon'],
-      paint: {
-        'fill-color': ['coalesce', ['get', 'fill'], DEFAULT_FILL],
-        'fill-opacity': ['coalesce', ['get', 'fill-opacity'], 0.25],
-      },
-    }, beforeId)
-    map.addLayer({
-      id: `${sourceId}-line`,
-      type: 'line',
-      source: sourceId,
-      filter: ['in', ['geometry-type'], ['literal', ['Polygon', 'LineString']]],
-      paint: {
-        'line-color': ['coalesce', ['get', 'stroke'], DEFAULT_STROKE],
-        'line-width': ['coalesce', ['get', 'stroke-width'], 2],
-        'line-opacity': ['coalesce', ['get', 'stroke-opacity'], 1],
-      },
-    }, beforeId)
-    map.addLayer({
-      id: `${sourceId}-point`,
-      type: 'circle',
-      source: sourceId,
-      filter: ['==', ['geometry-type'], 'Point'],
-      paint: {
-        'circle-radius': 6,
-        'circle-color': ['coalesce', ['get', 'marker-color'], DEFAULT_STROKE],
-        'circle-stroke-width': 2,
-        'circle-stroke-color': '#ffffff',
-      },
-    }, beforeId)
-    map.addLayer({
-      id: `${sourceId}-label`,
-      type: 'symbol',
-      source: sourceId,
-      filter: ['==', ['geometry-type'], 'Point'],
-      layout: {
-        'text-field': ['coalesce', ['get', 'name'], ''],
-        'text-font': ['Noto Sans Regular'],
-        'text-size': 12,
-        'text-offset': [0, 1.1],
-        'text-anchor': 'top',
-        'text-optional': true,
-      },
-      paint: {
-        'text-color': '#ffffff',
-        'text-halo-color': '#000000',
-        'text-halo-width': 1.5,
-      },
-    }, beforeId)
-  }
 }
 
 function escapeHtml(s: string): string {
