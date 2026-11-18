@@ -223,7 +223,9 @@ html, body, #root {
   gap: 6px;
 }
 
-.basemap-choice button {
+/* More specific than `.layer-panel .layer-row button` (below), so the picked
+   basemap shows. */
+.layer-panel .layer-row .basemap-choice button {
   background: #2a2a2a;
   border: 1px solid #444;
   border-radius: 8px;
@@ -233,10 +235,17 @@ html, body, #root {
   cursor: pointer;
 }
 
-.basemap-choice button.selected {
+.layer-panel .layer-row .basemap-choice button.selected {
   border-color: #facc15;
   color: #fff;
   background: #3a3320;
+}
+
+/* "needs signal" under Satellite: it's online only. */
+.layer-panel .layer-row .basemap-choice button small {
+  display: block;
+  font-size: 10px;
+  color: #f59e0b;
 }
 
 .pin-chip {

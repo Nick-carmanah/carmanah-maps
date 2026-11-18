@@ -63,6 +63,9 @@ Nothing is private. No data, no keys, no crew-only material: it's the same
 code as the public website. Outside scripts: none. The page loads only its own
 files and `/capacitor.js`. At run time it fetches map tiles, terrain, satellite
 imagery and live fire data from public map services, as the website does.
+Never cache satellite tiles (`server.arcgisonline.com`) in the crew app's
+service worker: Esri's terms don't allow keeping them offline outside Esri
+software. Without signal the page shows streets instead.
 
 Names without a hash: `index.html`, `basemap/**` and `nwcg/**`. Their content
 rarely changes, but when it does the name stays the same. So fetch every file

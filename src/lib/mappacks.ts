@@ -1,9 +1,13 @@
 import type { LngLatBounds } from 'maplibre-gl'
-import { TILEJSON_URL } from '../map/basemap'
+import { SATELLITE_TILE_URL, TILEJSON_URL } from '../map/basemap'
 
 // Tiles are stored in the same Cache Storage bucket the service worker's
 // CacheFirst handler reads from ('map-tiles'), so anything downloaded here is
 // served automatically when offline.
+//
+// Never satellite: Esri's terms for World Imagery don't allow keeping its
+// tiles offline outside Esri software, so a saved area is streets and terrain
+// only, and satellite needs signal (src/lib/satellite-signal.ts).
 const CACHE_NAME = 'map-tiles'
 
 const TERRAIN_URL = (z: number, x: number, y: number) =>
@@ -89,6 +93,47 @@ export interface PackResult {
   failed: number
 }
 
+/** Everything a saved area downloads: basemap and terrain tiles. Label fonts
+ * and icons ship with the app (src/map/basemap.ts). `basemapTiles` is the
+ * TileJSON's tile URL. */
+export function packUrls(bounds: LngLatBounds, basemapTiles: string): string[] {
+  return urlsForBounds(bounds, basemapTiles)
+}
+
+/** Satellite tiles start with this (Esri World Imagery's own host). */
+export const SATELLITE_HOST = new URL(SATELLITE_TILE_URL).origin + '/'
+
+const PURGED_KEY = 'carmanah-satellite-tiles-removed'
+
+/**
+ * Remove satellite tiles older versions of the app kept in the tile cache
+ * (their service worker cached Esri World Imagery for 90 days). Runs at each
+ * start until a pass finds none: on the first start after the update the old
+ * service worker can still be adding some. Returns how many it removed.
+ */
+export async function removeSavedSatelliteTiles(): Promise<number> {
+  if (typeof caches === 'undefined') return 0
+  try {
+    if (localStorage.getItem(PURGED_KEY) === '1') return 0
+  } catch {
+    // No localStorage: just check the cache.
+  }
+  if (!(await caches.has(CACHE_NAME))) return 0
+  const cache = await caches.open(CACHE_NAME)
+  const satellite = (await cache.keys()).filter((request) =>
+    request.url.startsWith(SATELLITE_HOST),
+  )
+  await Promise.all(satellite.map((request) => cache.delete(request)))
+  if (satellite.length === 0) {
+    try {
+      localStorage.setItem(PURGED_KEY, '1')
+    } catch {
+      // Checked again next start; harmless.
+    }
+  }
+  return satellite.length
+}
+
 export async function downloadMapPack(
   bounds: LngLatBounds,
   onProgress: (done: number, total: number) => void,
@@ -107,9 +152,7 @@ export async function downloadMapPack(
   const { tiles } = (await tilejson.clone().json()) as { tiles: string[] }
   await cache.put(TILEJSON_URL, tilejson)
 
-  // Label fonts and icons ship with the app (src/map/basemap.ts), so only
-  // tiles are downloaded.
-  const urls = urlsForBounds(bounds, tiles[0])
+  const urls = packUrls(bounds, tiles[0])
   const result: PackResult = { fetched: 0, alreadyCached: 0, failed: 0 }
   let done = 0
   let index = 0
