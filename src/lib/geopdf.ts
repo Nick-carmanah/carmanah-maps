@@ -260,9 +260,14 @@ export async function renderGeoPdfRegion(
   bytes: Uint8Array,
   region: GeoPdfRegion,
 ): Promise<RenderedGeoPdf> {
-  const pdfjs = await import('pdfjs-dist')
+  // pdf.js's *legacy* build, not the default one. The default build calls
+  // new built-ins (Map.prototype.getOrInsertComputed, Math.sumPrecise) with
+  // no fallback; Safari only has getOrInsertComputed from iOS 26.2, so import
+  // fails on older iPhones (e.g. XS/XR, which stop at iOS 18). The legacy
+  // build polyfills them. The page module and the worker must match.
+  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs')
   pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-    'pdfjs-dist/build/pdf.worker.min.mjs',
+    'pdfjs-dist/legacy/build/pdf.worker.min.mjs',
     import.meta.url,
   ).toString()
 
