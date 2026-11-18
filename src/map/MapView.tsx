@@ -51,8 +51,15 @@ interface MapViewProps {
   /** Imported maps from the Maps library (GeoPDFs), oldest first. */
   mapLayers: MapLayer[]
   /** Map or feature id the map should fly to, or explicit bounds (a
-   * layer's extent). Changes trigger a fit. */
-  focusRequest: { id: string; nonce: number; bounds?: LngLatBoundsLike | null } | null
+   * layer's extent). Changes trigger a fit. Opening a map fits it at once
+   * (`instant`) and as close as its detail allows (`maxZoom`). */
+  focusRequest: {
+    id: string
+    nonce: number
+    bounds?: LngLatBoundsLike | null
+    maxZoom?: number
+    instant?: boolean
+  } | null
   measureMode: boolean
   onExitMeasure: () => void
   /** Save the current measurement sketch as a persistent line/area. */
@@ -80,8 +87,9 @@ interface MapViewProps {
   onNotify: (message: string, isError?: boolean) => void
   /** Hands out the map instance once it exists (null after it's removed). */
   onMapReady?: (map: MlMap | null) => void
-  /** The basemap to draw: streets whenever satellite has no signal. */
-  basemap: 'streets' | 'satellite'
+  /** The basemap to draw: streets whenever satellite has no signal, and
+   * 'none' while a custom map is open on its own (a plain background around it). */
+  basemap: Basemap
   /** Bump to open the coordinate search input (from the tools sheet). */
   openSearchNonce: number
 }
@@ -370,7 +378,7 @@ export default function MapView({
         map.setLayoutProperty('live-perim-fill', 'visibility', 'none')
         map.setLayoutProperty('live-perim-line', 'visibility', 'none')
       }
-      if (basemapRef.current === 'satellite') showBasemap(map, 'satellite')
+      if (basemapRef.current !== 'streets') showBasemap(map, basemapRef.current)
       setUserFeatureData(map, userFeaturesRef.current, hiddenLayerIdsRef.current)
       ;(map.getSource('fences') as maplibregl.GeoJSONSource | undefined)?.setData(
         fenceShapes(
@@ -442,7 +450,11 @@ export default function MapView({
           ? boundsOf(featuresToGeoJSON([feature]))
           : null)
     if (bounds) {
-      map.fitBounds(bounds, { padding: 60, maxZoom: 14, duration: 800 })
+      map.fitBounds(bounds, {
+        padding: focusRequest.instant ? 24 : 60,
+        maxZoom: focusRequest.maxZoom ?? 14,
+        duration: focusRequest.instant ? 0 : 800,
+      })
     }
   }, [focusRequest])
 
@@ -852,10 +864,26 @@ function setUserFeatureData(map: MlMap, features: UserFeature[], hiddenLayerIds:
   source?.setData(featuresToGeoJSON(features.filter((f) => !hiddenLayerIds.has(f.layerId))))
 }
 
-function showBasemap(map: MlMap, basemap: 'streets' | 'satellite') {
+type Basemap = 'streets' | 'satellite' | 'none'
+
+/** Plain light grey around a custom map shown on its own, as Avenza does. */
+const NO_BASEMAP_COLOR = '#d6d6d1'
+let streetsBackground: unknown
+
+function showBasemap(map: MlMap, basemap: Basemap) {
   const streets = basemap === 'streets' ? 'visible' : 'none'
   for (const id of BASEMAP_LAYER_IDS) map.setLayoutProperty(id, 'visibility', streets)
   map.setLayoutProperty('satellite', 'visibility', basemap === 'satellite' ? 'visible' : 'none')
+  map.setLayoutProperty('hillshade', 'visibility', basemap === 'none' ? 'none' : 'visible')
+  // The style's background layer stays on as the plain ground under a custom map.
+  const background = BASEMAP_LAYER_IDS[0]
+  streetsBackground ??= map.getPaintProperty(background, 'background-color')
+  if (basemap === 'none') {
+    map.setLayoutProperty(background, 'visibility', 'visible')
+    map.setPaintProperty(background, 'background-color', NO_BASEMAP_COLOR)
+  } else {
+    map.setPaintProperty(background, 'background-color', streetsBackground)
+  }
 }
 
 /** Imported maps (GeoPDFs) render below everything else — a data underlay
