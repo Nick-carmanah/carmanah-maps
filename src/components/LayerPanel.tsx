@@ -1,4 +1,4 @@
-import type { Overlay, RasterOverlay } from '../lib/store'
+import type { Overlay } from '../lib/store'
 import { formatAge } from '../lib/livefires'
 import { featureLayer, featureStat, KIND_ICONS, type UserFeature } from '../lib/features'
 
@@ -6,11 +6,12 @@ export type ExportFormat = 'kml' | 'kmz' | 'gpx' | 'csv'
 
 interface LayerPanelProps {
   overlays: Overlay[]
-  rasterOverlays: RasterOverlay[]
+  /** How many maps are in the Maps library, and how to open it. */
+  mapsCount: number
+  onOpenMaps: () => void
   hiddenIds: Set<string>
   onToggle: (id: string) => void
   onRemove: (id: string) => void
-  onRemoveRaster: (id: string) => void
   onFocus: (id: string) => void
   liveEnabled: boolean
   liveFetchedAt: number | null
@@ -34,11 +35,11 @@ interface LayerPanelProps {
 
 export default function LayerPanel({
   overlays,
-  rasterOverlays,
+  mapsCount,
+  onOpenMaps,
   hiddenIds,
   onToggle,
   onRemove,
-  onRemoveRaster,
   onFocus,
   liveEnabled,
   liveFetchedAt,
@@ -90,6 +91,15 @@ export default function LayerPanel({
           ))}
         </span>
       </div>
+      <button className="layer-row maps-entry" onClick={onOpenMaps}>
+        <span className="name">
+          🗺 Maps
+          <div className="meta">
+            {mapsCount ? `${mapsCount} saved · GeoPDFs` : 'Import GeoPDFs from Avenza or BCWS'}
+          </div>
+        </span>
+        <span aria-hidden>›</span>
+      </button>
       {!collapsed && (
         <div className="layer-row">
           <input
@@ -196,39 +206,7 @@ export default function LayerPanel({
         </>
       )}
       {!collapsed &&
-        rasterOverlays.map((raster) => (
-          <div className="layer-row" key={raster.id}>
-            <input
-              type="checkbox"
-              checked={!hiddenIds.has(raster.id)}
-              onChange={() => onToggle(raster.id)}
-              title="Show/hide"
-            />
-            <span
-              className="name"
-              onClick={() => onFocus(raster.id)}
-              title="Zoom to layer"
-              style={{ cursor: 'pointer' }}
-            >
-              🗺 {raster.name}
-              <div className="meta">
-                GeoPDF · {new Date(raster.addedAt).toLocaleDateString()}
-              </div>
-            </span>
-            <button
-              onClick={() => {
-                if (confirm(`Remove "${raster.name}" from your device?`)) {
-                  onRemoveRaster(raster.id)
-                }
-              }}
-              title="Delete layer"
-            >
-              ✕
-            </button>
-          </div>
-        ))}
-      {!collapsed &&
-        (overlays.length === 0 && rasterOverlays.length === 0 ? (
+        (overlays.length === 0 ? (
           <div className="empty">Scan a fire QR code or import a KML to get started.</div>
         ) : (
           overlays.map((overlay) => (

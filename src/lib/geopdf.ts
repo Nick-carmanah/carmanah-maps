@@ -249,12 +249,94 @@ function parseByPattern(bytes: Uint8Array): GeoPdfRegion[] {
   return regions
 }
 
+// ---- File details (pages, projection) ----
+
+export interface MapProjection {
+  /** Name from the WKT, e.g. "NAD_1983_UTM_Zone_11N". */
+  name?: string
+  epsg?: number
+  wkt?: string
+}
+
+export interface GeoPdfInfo {
+  pageCount: number
+  /** Per page: its size and its georeferenced map frames (bbox normalised like GeoPdfRegion.bboxPt). */
+  pages: { sizePt: [number, number]; frames: { bboxPt: [number, number, number, number]; projection?: MapProjection }[] }[]
+}
+
+/**
+ * Page count and each map frame's coordinate system, for the page picker and
+ * map info. Separate from parseGeoPdfRegions on purpose: placement doesn't
+ * depend on any of this. Null if pdf-lib can't read the file.
+ */
+export async function readGeoPdfInfo(bytes: Uint8Array): Promise<GeoPdfInfo | null> {
+  try {
+    const { PDFDocument, PDFName, PDFArray, PDFDict, PDFNumber, PDFString, PDFHexString } = await import(
+      'pdf-lib'
+    )
+    const doc = await PDFDocument.load(bytes, {
+      ignoreEncryption: true,
+      updateMetadata: false,
+      throwOnInvalidObject: false,
+    })
+    const maybe = <T>(fn: () => T): T | undefined => {
+      try {
+        return fn()
+      } catch {
+        return undefined
+      }
+    }
+    const pages = doc.getPages().map((page) => {
+      const media = page.getMediaBox()
+      const frames: GeoPdfInfo['pages'][number]['frames'] = []
+      const vp = maybe(() => page.node.lookupMaybe(PDFName.of('VP'), PDFArray))
+      for (let i = 0; vp && i < vp.size(); i++) {
+        const viewport = maybe(() => vp.lookup(i, PDFDict))
+        const bboxArr = maybe(() => viewport?.lookupMaybe(PDFName.of('BBox'), PDFArray))
+        const bbox: number[] = []
+        for (let j = 0; bboxArr && j < bboxArr.size(); j++) {
+          const n = bboxArr.lookup(j)
+          bbox.push(n instanceof PDFNumber ? n.asNumber() : NaN)
+        }
+        if (bbox.length !== 4 || bbox.some(Number.isNaN)) continue
+        const measure = maybe(() => viewport?.lookupMaybe(PDFName.of('Measure'), PDFDict))
+        const gcs = maybe(() => measure?.lookupMaybe(PDFName.of('GCS'), PDFDict))
+        let projection: MapProjection | undefined
+        if (gcs) {
+          const wktObj = maybe(() => gcs.lookup(PDFName.of('WKT')))
+          const wkt =
+            wktObj instanceof PDFString || wktObj instanceof PDFHexString ? wktObj.decodeText().trim() : undefined
+          const epsgObj = maybe(() => gcs.lookup(PDFName.of('EPSG')))
+          const epsg = epsgObj instanceof PDFNumber ? epsgObj.asNumber() : undefined
+          const name = wkt ? /^\s*[A-Z]+\s*\[\s*"([^"]+)"/.exec(wkt)?.[1] : undefined
+          if (wkt || epsg) projection = { name, epsg, wkt: wkt?.slice(0, 4000) }
+        }
+        frames.push({ bboxPt: normalizeBox(bbox), projection })
+      }
+      return { sizePt: [media.width, media.height] as [number, number], frames }
+    })
+    return { pageCount: pages.length, pages }
+  } catch {
+    return null
+  }
+}
+
+/** The projection of the frame a region came from, if the file says. */
+export function regionProjection(info: GeoPdfInfo | null, region: GeoPdfRegion): MapProjection | undefined {
+  const frames = info?.pages[region.pageIndex]?.frames ?? []
+  return frames.find((f) => f.bboxPt.every((v, i) => Math.abs(v - region.bboxPt[i]) < 1e-6))?.projection
+}
+
 // ---- Rendering ----
 
 export interface RenderedGeoPdf {
   /** Cropped raster of just the georeferenced region, as a Blob. */
   blob: Blob
+  width: number
+  height: number
   corners: GeoPdfRegion['corners']
+  /** A small JPEG of the map, when asked for (`thumbnailPx`). */
+  thumb?: Blob
   /**
    * Errors pdf.js skipped over while drawing (its "ignoring errors"
    * warnings), without repeats. If there are any, parts of the map, often
@@ -292,7 +374,20 @@ export function dominantColourShare(rgba: Uint8ClampedArray): number {
   return same / px.length
 }
 
-function context2d(canvas: HTMLCanvasElement): CanvasRenderingContext2D {
+/** Throws if a rendered map is blank, or almost blank and pdf.js reported a draw error. */
+export function assertNotBlank(pixels: Uint8ClampedArray, drawErrors: Set<string> | string[]): void {
+  const errors = [...drawErrors]
+  const share = dominantColourShare(pixels)
+  if (share >= FLAT_RENDER_SHARE || (share > NEARLY_BLANK_SHARE && errors.length > 0)) {
+    const how = share >= FLAT_RENDER_SHARE ? 'blank' : 'almost blank'
+    const why = errors.length ? ` (${errors[0]})` : ''
+    throw new Error(
+      `the map came out ${how}${why}, so it wasn't saved. Update the phone's software (iOS or Android) and try again; if it's still blank, report this map.`,
+    )
+  }
+}
+
+export function context2d(canvas: HTMLCanvasElement): CanvasRenderingContext2D {
   const ctx = canvas.getContext('2d')
   // Safari gives null when a canvas is too big or the page is out of canvas memory.
   if (!ctx) {
@@ -303,11 +398,57 @@ function context2d(canvas: HTMLCanvasElement): CanvasRenderingContext2D {
   return ctx
 }
 
-/** Render a georeferenced region's page and crop to just its map area. */
-export async function renderGeoPdfRegion(
-  bytes: Uint8Array,
-  region: GeoPdfRegion,
-): Promise<RenderedGeoPdf> {
+export function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality?: number): Promise<Blob> {
+  return new Promise((resolve, reject) =>
+    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('toBlob failed'))), type, quality),
+  )
+}
+
+/** A small JPEG of a canvas (thumbnails in the library and page picker). */
+export async function thumbnailOf(source: CanvasImageSource & { width: number; height: number }, maxPx: number) {
+  const scale = Math.min(1, maxPx / Math.max(source.width, source.height))
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.max(1, Math.round(source.width * scale))
+  canvas.height = Math.max(1, Math.round(source.height * scale))
+  const ctx = context2d(canvas)
+  ctx.fillStyle = '#fff'
+  ctx.fillRect(0, 0, canvas.width, canvas.height)
+  ctx.imageSmoothingQuality = 'high'
+  ctx.drawImage(source, 0, 0, canvas.width, canvas.height)
+  try {
+    return await canvasToBlob(canvas, 'image/jpeg', 0.8)
+  } finally {
+    canvas.width = canvas.height = 0
+  }
+}
+
+type PdfjsModule = typeof import('pdfjs-dist/legacy/build/pdf.mjs')
+type PdfDocument = Awaited<ReturnType<PdfjsModule['getDocument']>['promise']>
+export type PdfPage = Awaited<ReturnType<PdfDocument['getPage']>>
+
+/**
+ * One PDF open in pdf.js, for rendering several things from it (page
+ * thumbnails for the picker, then each chosen map) with one worker. Close it
+ * when done.
+ */
+export interface GeoPdfSession {
+  readonly pageCount: number
+  /** Render a region and crop to its map area (the import's raster). */
+  renderRegion(
+    region: GeoPdfRegion,
+    opts?: { maxEdgePx?: number; thumbnailPx?: number },
+  ): Promise<RenderedGeoPdf>
+  /** A small picture of a whole page, as shown on paper. */
+  renderPageThumbnail(pageIndex: number, maxPx: number): Promise<Blob>
+  /**
+   * Run `draw` with a page, collecting the errors pdf.js skips while drawing
+   * it. Used by the tile renderer.
+   */
+  withPage<T>(pageIndex: number, draw: (page: PdfPage, drawErrors: Set<string>) => Promise<T>): Promise<T>
+  close(): Promise<void>
+}
+
+export async function openGeoPdf(bytes: Uint8Array): Promise<GeoPdfSession> {
   // pdf.js's *legacy* build, not the default one. The default build calls
   // new built-ins (Map.prototype.getOrInsertComputed, Math.sumPrecise) with
   // no fallback; Safari only has getOrInsertComputed from iOS 26.2, so import
@@ -321,72 +462,141 @@ export async function renderGeoPdfRegion(
 
   // e.g. 'getOperatorList - ignoring errors during "GetOperatorList: page 0"
   // task: "TypeError: buffer.transferToFixedLength is not a function".'
-  const drawErrors = new Set<string>()
+  // pdf.js reads a page's drawing operations once and keeps them, so its
+  // errors arrive during the first draw of that page: keep them per page.
+  const pageErrors = new Map<number, Set<string>>()
+  let drawingPage = -1
+  const errorsFor = (pageIndex: number) => {
+    let set = pageErrors.get(pageIndex)
+    if (!set) pageErrors.set(pageIndex, (set = new Set()))
+    return set
+  }
   const onWorkerMessage = (e: MessageEvent) => {
     const text = (e.data as Partial<PdfjsWarningMessage> | null)?.pdfjsWarning
     if (typeof text !== 'string' || !text.includes('ignoring errors')) return
-    drawErrors.add((/: "(.*)"\.?$/.exec(text)?.[1] ?? text).slice(0, 120))
+    errorsFor(drawingPage).add((/: "(.*)"\.?$/.exec(text)?.[1] ?? text).slice(0, 120))
   }
 
+  let loadingTask: ReturnType<PdfjsModule['getDocument']> | undefined
+  const close = async () => {
+    try {
+      await loadingTask?.destroy()
+    } finally {
+      worker.port?.removeEventListener('message', onWorkerMessage)
+      worker.destroy()
+    }
+  }
+
+  let doc: PdfDocument
   try {
     await worker.promise
     worker.port.addEventListener('message', onWorkerMessage)
     // pdf.js detaches/transfers the buffer — hand it a private copy.
-    const loadingTask = pdfjs.getDocument({ data: bytes.slice(), worker })
-    try {
-      const doc = await loadingTask.promise
-      const page = await doc.getPage(region.pageIndex + 1)
+    loadingTask = pdfjs.getDocument({ data: bytes.slice(), worker })
+    doc = await loadingTask.promise
+  } catch (err) {
+    await close()
+    throw err
+  }
 
-      const [xMin, yMin, xMax, yMax] = region.bboxPt
-      const TARGET_LONG_EDGE_PX = 2200
-      const scale = TARGET_LONG_EDGE_PX / Math.max(xMax - xMin, yMax - yMin)
-
-      // Render unrotated: the bbox is in unrotated user space.
-      const viewport = page.getViewport({ scale, rotation: 0 })
-      const fullCanvas = document.createElement('canvas')
-      fullCanvas.width = Math.ceil(viewport.width)
-      fullCanvas.height = Math.ceil(viewport.height)
-      const ctx = context2d(fullCanvas)
-      await page.render({ canvas: fullCanvas, canvasContext: ctx, viewport }).promise
-
-      // Let pdf.js map user space → canvas (handles MediaBox/CropBox offsets and
-      // the y-flip), rather than assuming the page origin is at 0,0.
-      const [ax, ay] = viewport.convertToViewportPoint(xMin, yMax)
-      const [bx, by] = viewport.convertToViewportPoint(xMax, yMin)
-      const cropX = Math.min(ax, bx)
-      const cropY = Math.min(ay, by)
-      const cropW = Math.abs(bx - ax)
-      const cropH = Math.abs(by - ay)
-
-      const cropCanvas = document.createElement('canvas')
-      cropCanvas.width = Math.round(cropW)
-      cropCanvas.height = Math.round(cropH)
-      const cropCtx = context2d(cropCanvas)
-      cropCtx.drawImage(fullCanvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH)
-      // Free the full-page canvas now: iOS caps a page's total canvas memory.
-      fullCanvas.width = fullCanvas.height = 0
-
-      // A blank map would look like a successful import and leave a crew with
-      // nothing in the field. Refuse to save it (see FLAT_RENDER_SHARE).
-      const pixels = cropCtx.getImageData(0, 0, cropCanvas.width, cropCanvas.height).data
-      const share = dominantColourShare(pixels)
-      if (share >= FLAT_RENDER_SHARE || (share > NEARLY_BLANK_SHARE && drawErrors.size > 0)) {
-        const how = share >= FLAT_RENDER_SHARE ? 'blank' : 'almost blank'
-        const why = drawErrors.size ? ` (${[...drawErrors][0]})` : ''
-        throw new Error(
-          `the map came out ${how}${why}, so it wasn't saved. Update the phone's software (iOS or Android) and try again; if it's still blank, report this map.`,
-        )
+  // One page at a time, so errors land on the right page.
+  let queue: Promise<unknown> = Promise.resolve()
+  const withPage = <T>(pageIndex: number, draw: (page: PdfPage, errors: Set<string>) => Promise<T>) => {
+    const run = queue.then(async () => {
+      const page = await doc.getPage(pageIndex + 1)
+      drawingPage = pageIndex
+      try {
+        return await draw(page, errorsFor(pageIndex))
+      } finally {
+        drawingPage = -1
       }
+    })
+    queue = run.catch(() => {})
+    return run
+  }
 
-      const blob: Blob = await new Promise((resolve, reject) =>
-        cropCanvas.toBlob((b) => (b ? resolve(b) : reject(new Error('toBlob failed'))), 'image/png'),
-      )
-      return { blob, corners: region.corners, drawErrors: [...drawErrors] }
-    } finally {
-      await loadingTask.destroy()
-    }
+  return {
+    pageCount: doc.numPages,
+    withPage,
+    close,
+
+    renderPageThumbnail: (pageIndex, maxPx) =>
+      withPage(pageIndex, async (page) => {
+        const base = page.getViewport({ scale: 1 })
+        const viewport = page.getViewport({ scale: maxPx / Math.max(base.width, base.height) })
+        const canvas = document.createElement('canvas')
+        canvas.width = Math.ceil(viewport.width)
+        canvas.height = Math.ceil(viewport.height)
+        try {
+          await page.render({ canvas, canvasContext: context2d(canvas), viewport }).promise
+          return await canvasToBlob(canvas, 'image/jpeg', 0.8)
+        } finally {
+          canvas.width = canvas.height = 0
+        }
+      }),
+
+    renderRegion: (region, opts = {}) =>
+      withPage(region.pageIndex, async (page, drawErrors) => {
+        const [xMin, yMin, xMax, yMax] = region.bboxPt
+        const scale = (opts.maxEdgePx ?? 2200) / Math.max(xMax - xMin, yMax - yMin)
+
+        // Render unrotated: the bbox is in unrotated user space.
+        const viewport = page.getViewport({ scale, rotation: 0 })
+        const fullCanvas = document.createElement('canvas')
+        fullCanvas.width = Math.ceil(viewport.width)
+        fullCanvas.height = Math.ceil(viewport.height)
+        const cropCanvas = document.createElement('canvas')
+        try {
+          const ctx = context2d(fullCanvas)
+          await page.render({ canvas: fullCanvas, canvasContext: ctx, viewport }).promise
+
+          // Let pdf.js map user space → canvas (handles MediaBox/CropBox offsets and
+          // the y-flip), rather than assuming the page origin is at 0,0.
+          const [ax, ay] = viewport.convertToViewportPoint(xMin, yMax)
+          const [bx, by] = viewport.convertToViewportPoint(xMax, yMin)
+          const cropX = Math.min(ax, bx)
+          const cropY = Math.min(ay, by)
+          const cropW = Math.abs(bx - ax)
+          const cropH = Math.abs(by - ay)
+
+          cropCanvas.width = Math.round(cropW)
+          cropCanvas.height = Math.round(cropH)
+          const cropCtx = context2d(cropCanvas)
+          cropCtx.drawImage(fullCanvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH)
+          // Free the full-page canvas now: iOS caps a page's total canvas memory.
+          fullCanvas.width = fullCanvas.height = 0
+
+          // A blank map would look like a successful import and leave a crew with
+          // nothing in the field. Refuse to save it (see FLAT_RENDER_SHARE).
+          assertNotBlank(cropCtx.getImageData(0, 0, cropCanvas.width, cropCanvas.height).data, drawErrors)
+
+          const blob = await canvasToBlob(cropCanvas, 'image/png')
+          const thumb = opts.thumbnailPx ? await thumbnailOf(cropCanvas, opts.thumbnailPx) : undefined
+          return {
+            blob,
+            width: cropCanvas.width,
+            height: cropCanvas.height,
+            corners: region.corners,
+            thumb,
+            drawErrors: [...drawErrors],
+          }
+        } finally {
+          fullCanvas.width = fullCanvas.height = 0
+          cropCanvas.width = cropCanvas.height = 0
+        }
+      }),
+  }
+}
+
+/** Render a georeferenced region's page and crop to just its map area. */
+export async function renderGeoPdfRegion(
+  bytes: Uint8Array,
+  region: GeoPdfRegion,
+): Promise<RenderedGeoPdf> {
+  const session = await openGeoPdf(bytes)
+  try {
+    return await session.renderRegion(region)
   } finally {
-    worker.port?.removeEventListener('message', onWorkerMessage)
-    worker.destroy()
+    await session.close()
   }
 }
