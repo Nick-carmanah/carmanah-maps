@@ -11,6 +11,7 @@ Legend: ✅ done · 🟡 partial · ⬜ todo · ➕ ours (no Avenza equivalent)
 | Feature | Avenza tier | Status | Notes |
 |---|---|---|---|
 | Offline maps | Free | ✅ | Save-offline view packs (z6–14 vector basemap + terrain, sharp at any zoom) + SW tile cache |
+| My Maps: pick a map, then view it | Free | ✅ | Avenza's model (2026-11-18): the app opens on My Maps (or back in the last map, per person). First row is the base map (Streets/Satellite), then imported maps by fire folder with thumbnail, name, date and size; "You are here" on maps containing the GPS position, distance to the others, sort by fire or nearest. "+" imports from Files, a QR code or a link. Tapping a map shows only that map, fitted to its extent, with plain grey outside its edge (Layers → "Show base map around this map", remembered per person) and its opacity; layers, GPS, readout and tools work on every map. Top bar: ‹ Maps and the map's name (plus ‹ Home in the crew app) |
 | Basemap layers (satellite) | Plus | ✅ | OSM-style OpenFreeMap vector basemap ↔ Esri World Imagery toggle; hillshade stays on top; cached offline by SW |
 | 3D terrain / hillshade | — | ➕ ✅ | Beyond Avenza — terrain toggle + hillshade |
 | Map store / catalogue | Free | ⬜ | Our version: curated wildfire map-pack library (PMTiles regions) |
@@ -118,12 +119,12 @@ New gaps found, beyond what the parity tables already track:
 | KMZ export with photos embedded | ✅ KMZ bundles doc.kml + photos; per-layer or all data |
 | GPX track export with timestamps/velocity | ✅ Recorded tracks keep per-point times; exported as <time> |
 | GeoPackage import (Pro) | ⬜ gpkg via sql.js or server; low priority |
-| Import from web URL (in-app paste) | 🟡 ?kml= deep link exists; add a paste-URL option in Import |
+| Import from web URL (in-app paste) | ✅ My Maps → + → From a link (GeoPDF links go to My Maps, KML/KMZ/GPX/CSV to layers); ?kml= deep link too |
 | "Import as geofences" option | ⬜ Auto-arm fences on imported features — great for div boundaries |
 | Typed attribute schemas per layer (String/Bool/Real/Int, picklists) + active layer | 🟡 Typed per-layer schemas with pick lists ✅; active layer and lock still todo |
 | OSM place-name search (gazetteer) creating a feature | ⬜ Already tracked — confirms it's core Avenza UX |
 | Map details panel (publisher, projection, import date) | 🟡 We show feature count + date; fine for now |
-| Folders + Collections (auto-transition between adjacent maps) | Folders ⬜ tracked; collections **N/A** — our basemap is seamless, no map-to-map transitions exist |
+| Folders + Collections (auto-transition between adjacent maps) | Folders ✅ (one per fire on My Maps); collections ⬜ — one map is viewed at a time now, so moving into an adjacent map is a later step |
 
 Where the tutorials show Avenza friction we simply don't have: linking layers
 to maps (all our data renders on the one continuous map), per-map

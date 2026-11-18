@@ -2,9 +2,8 @@ import type { ReactNode } from 'react'
 import { formatAge } from '../lib/livefires'
 
 interface LayerPanelProps {
-  /** How many maps are in the Maps library, and how to open it. */
-  mapsCount: number
-  onOpenMaps: () => void
+  /** The map that's open (a custom map or the base map), with a way back to My Maps. */
+  currentMap: ReactNode
   liveEnabled: boolean
   liveFetchedAt: number | null
   liveRefreshing: boolean
@@ -25,8 +24,7 @@ interface LayerPanelProps {
 }
 
 export default function LayerPanel({
-  mapsCount,
-  onOpenMaps,
+  currentMap,
   liveEnabled,
   liveFetchedAt,
   liveRefreshing,
@@ -53,6 +51,7 @@ export default function LayerPanel({
           ✕
         </button>
       </div>
+      {currentMap}
       <div className="layer-row">
         <span className="name">
           Basemap
@@ -73,15 +72,6 @@ export default function LayerPanel({
           ))}
         </span>
       </div>
-      <button className="layer-row maps-entry" onClick={onOpenMaps}>
-        <span className="name">
-          🗺 Maps
-          <div className="meta">
-            {mapsCount ? `${mapsCount} saved · GeoPDFs` : 'Import GeoPDFs from Avenza or BCWS'}
-          </div>
-        </span>
-        <span aria-hidden>›</span>
-      </button>
       {!collapsed && (
         <div className="layer-row">
           <input
