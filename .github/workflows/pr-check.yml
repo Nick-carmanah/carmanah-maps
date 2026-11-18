@@ -1,0 +1,28 @@
+name: PR check
+
+# Every pull request must typecheck and build before it can be merged to
+# main (merging to main deploys the live app via deploy.yml).
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-check-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # `npm run build` runs `tsc -b` first, so this typechecks too. Build
+      # with the GitHub Pages base path, exactly as deploy.yml will.
+      - run: npm run build
