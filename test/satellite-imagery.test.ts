@@ -15,7 +15,6 @@ import { previousQuarter, quarterOf, quarterStart } from '../scripts/imagery/lib
 import { dnLookup, lutIndex, reflectanceToByte } from '../scripts/imagery/lib/stretch'
 import { SpoolWriter } from '../scripts/imagery/lib/pmtiles-out'
 import { groundResolution, latToY, lonToX, pixelLonLat, xToLon, yToLat } from '../scripts/imagery/lib/tiles'
-import { parseRange } from '../scripts/imagery/serve'
 import { PmCompression, PmTileType } from '../src/lib/pmtiles-writer'
 import {
   checkSentinelFile,
@@ -368,18 +367,6 @@ describe('bucket catalog', () => {
     expect(fresh).toMatchObject({ format: 'carmanah-catalog', version: 1, packs: [] })
     expect(fresh.sources.imagery).toHaveLength(1)
     expect(() => addImageryEntry({ ...fresh, version: 2 as 1 }, entry('2026-q3'))).toThrow(/expected carmanah-catalog v1/)
-  })
-})
-
-describe('local Range server', () => {
-  it('parses byte ranges the way R2 answers them', () => {
-    expect(parseRange(undefined, 100)).toBeNull()
-    expect(parseRange('bytes=0-126', 1000)).toEqual([0, 126])
-    expect(parseRange('bytes=900-', 1000)).toEqual([900, 999])
-    expect(parseRange('bytes=-10', 1000)).toEqual([990, 999])
-    expect(parseRange('bytes=0-5000', 1000)).toEqual([0, 999])
-    expect(parseRange('bytes=1000-1001', 1000)).toBe('bad')
-    expect(parseRange('bytes=0-1,5-6', 1000)).toBe('bad')
   })
 })
 

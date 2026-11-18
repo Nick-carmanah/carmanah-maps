@@ -150,17 +150,21 @@ basemap and terrain.
 
 ## Test it in the app
 
-```bash
-node scripts/imagery/serve.ts
-```
+Serve the local bucket copy the way R2 serves it: byte ranges, ETags,
+and the bucket's real CORS rules ([docs/hosting-r2.md](../../docs/hosting-r2.md)).
 
 ```bash
-VITE_SATELLITE_PMTILES_URL=http://127.0.0.1:8790/imagery/s2-l2a/lytton/2026-09-18.pmtiles npm run dev
+npm run packs:serve
 ```
 
-Then choose Satellite and go to Lytton. `serve.ts` answers Range requests
-with 206, ETags and CORS, like R2. Once the fire-packs tools are merged,
-`npm run packs:serve` does the same for the whole bucket copy.
+In a second terminal, start the app on port 5173, an origin the CORS rules
+allow:
+
+```bash
+VITE_SATELLITE_PMTILES_URL=http://localhost:8787/imagery/s2-l2a/lytton/2026-09-18.pmtiles npm run dev
+```
+
+Then choose Satellite and go to Lytton.
 
 ## Publish
 

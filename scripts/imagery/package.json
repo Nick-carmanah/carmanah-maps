@@ -8,8 +8,7 @@
   },
   "scripts": {
     "build": "node build-satellite.ts",
-    "estimate": "node build-satellite.ts --estimate",
-    "serve": "node serve.ts"
+    "estimate": "node build-satellite.ts --estimate"
   },
   "dependencies": {
     "geotiff": "3.0.5",
