@@ -5,9 +5,11 @@ import type { RasterSourceSpecification } from 'maplibre-gl'
  * quarterly cloud-free mosaic), one PMTiles file built by scripts/imagery
  * and hosted on R2. Its licence allows offline use and printing.
  *
- * This is the one setting: VITE_SATELLITE_PMTILES_URL in .env, the file's
- * https URL. Empty, or the file not there yet: satellite is Esri World
- * Imagery, online only.
+ * This is the one setting: VITE_SATELLITE_PMTILES_URL, the file's public
+ * https URL, given when the app is built. The website gets it from
+ * .github/workflows/deploy.yml; the crew app's build passes it to
+ * `npm run build:embedded` (docs/crew-app-handoff.md §1). Not set, or the
+ * file not there yet: satellite is Esri World Imagery, online only.
  */
 export const SATELLITE_PMTILES_URL: string = (import.meta.env.VITE_SATELLITE_PMTILES_URL ?? '').trim()
 

@@ -48,8 +48,10 @@ things stand:
   resumable. It fits R2's free 10 GB next to the BC basemap and terrain.
 - **Credit:** `Contains modified Copernicus Sentinel data 2026` (the
   mosaic's year). It's in the file's metadata and shows on the map.
-- **App:** one setting, `VITE_SATELLITE_PMTILES_URL` in `.env`
-  (`src/map/satellite-source.ts`). Empty, or the file not there yet: Esri,
+- **App:** one build setting, `VITE_SATELLITE_PMTILES_URL`
+  (`src/map/satellite-source.ts`). The website sets it in
+  `.github/workflows/deploy.yml`; the crew app sets it for
+  `npm run build:embedded`. Empty, or the file not there yet: Esri,
   online only.
 - **Still to do:**
   - Upload (docs/hosting-r2.md).

@@ -3,25 +3,9 @@
 
 import { fromUrl, type GeoTIFFImage } from 'geotiff'
 import proj4 from 'proj4'
-import { dnLookup, type DnEncoding } from './stretch.ts'
+import { dnLookup } from './stretch.ts'
 import type { Block, BlockLookup, Level, SourceRaster } from './render.ts'
-
-export interface SourceSpec {
-  id: string
-  /** EPSG code of the item's UTM zone, e.g. 32610. */
-  epsg: number
-  /** Red, green, blue band COG URLs (https; presigned for CDSE). */
-  bands: [string, string, string]
-  encoding: DnEncoding
-  /** [west, south, east, north] from the STAC item. */
-  bbox: [number, number, number, number]
-  /** Date or quarter, for the log and metadata. */
-  date: string
-  /** Bytes of the three band files (STAC file:size), if known. */
-  bytes?: number
-  /** 0 = main imagery; higher = older imagery used only to fill gaps. */
-  priority?: number
-}
+import type { SourceSpec } from './types.ts'
 
 export interface OpenSource extends SourceRaster {
   spec: SourceSpec

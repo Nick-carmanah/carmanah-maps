@@ -24,10 +24,11 @@ import { areaFromBbox, areaFromRings, countTiles, tileTouchesArea, type Area } f
 import { addImageryEntry, COPERNICUS_LICENCE, imageryKey, type Catalog } from './lib/catalog.ts'
 import { PmTileType, PmCompression } from '../../src/lib/pmtiles-writer.ts'
 import { SpoolWriter } from './lib/pmtiles-out.ts'
-import { BlockCache, limitFetch, openSource, type OpenSource, type SourceSpec } from './lib/raster.ts'
+import { BlockCache, limitFetch, openSource, type OpenSource } from './lib/raster.ts'
 import { alphaStats, downsample, drawTile, planTile, type Block, type BlockLookup } from './lib/render.ts'
 import { awsL2aSources, cdseMosaicSources } from './lib/sources.ts'
 import { TRUE_COLOUR } from './lib/stretch.ts'
+import type { SourceSpec } from './lib/types.ts'
 import { children, tileBounds, TILE_SIZE, type TileId } from './lib/tiles.ts'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -303,7 +304,8 @@ async function build(area: Area): Promise<void> {
     `\nTo publish (nothing was uploaded):\n` +
       `  node scripts/packs/upload.ts ${local(outPath)} ${key}\n` +
       `  node scripts/packs/upload.ts ${local(catalogPath)} catalog.json\n` +
-      `  App: VITE_SATELLITE_PMTILES_URL=<bucket URL>/${key} in .env`,
+      `  App: VITE_SATELLITE_PMTILES_URL=<bucket URL>/${key} in .github/workflows/deploy.yml (website)\n` +
+      `       and for npm run build:embedded (crew app, docs/crew-app-handoff.md)`,
   )
 }
 

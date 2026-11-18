@@ -181,8 +181,13 @@ use the commands the build printed, in this order:
    node scripts/packs/upload.ts samples/bucket/catalog.json catalog.json
    ```
 
-3. Set `VITE_SATELLITE_PMTILES_URL` in `.env` to the file's public URL and
-   rebuild the app.
+3. Point the app at the file's public URL with `VITE_SATELLITE_PMTILES_URL`.
+   It's a build setting, never in a committed `.env` (the repo is public):
+   - **Website:** the `env:` of the build step in
+     `.github/workflows/deploy.yml`.
+   - **Crew app:**
+     `VITE_SATELLITE_PMTILES_URL=https://… npm run build:embedded`
+     ([docs/crew-app-handoff.md](../../docs/crew-app-handoff.md) §1).
 
 Each quarter is a new, immutable file. Keep the previous one for a month,
 then delete it.

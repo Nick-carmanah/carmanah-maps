@@ -28,6 +28,12 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+        env:
+          # Our Sentinel-2 satellite file on R2 (public URL), e.g.
+          # https://<bucket address>/imagery/s2-quarterly/bc/2026-q3.pmtiles.
+          # Empty: satellite is Esri World Imagery, online only. See
+          # src/map/satellite-source.ts and scripts/imagery/README.md.
+          VITE_SATELLITE_PMTILES_URL: ''
       - uses: actions/configure-pages@v5
         with:
           enablement: true

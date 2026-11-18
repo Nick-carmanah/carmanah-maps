@@ -395,8 +395,12 @@ describe('app satellite source', () => {
     expect(satelliteSource('sentinel', '')).toMatchObject({ attribution: ESRI_ATTRIBUTION })
   })
 
-  it('ships with no Sentinel-2 URL until the file is on R2', () => {
-    expect(readFileSync(join(__dirname, '../.env'), 'utf8')).toMatch(/^VITE_SATELLITE_PMTILES_URL=$/m)
+  it('takes the URL from the build, not a committed .env', () => {
+    // The website build sets it (empty until the file is on R2).
+    const deploy = readFileSync(join(__dirname, '../.github/workflows/deploy.yml'), 'utf8')
+    expect(deploy).toMatch(/run: npm run build\n\s+env:\n(\s+#.*\n)*\s+VITE_SATELLITE_PMTILES_URL: ''/)
+    // The repo is public: env files stay out of git.
+    expect(readFileSync(join(__dirname, '../.gitignore'), 'utf8')).toMatch(/^\.env$/m)
   })
 
   it('tells a missing file (use Esri) from no signal', async () => {

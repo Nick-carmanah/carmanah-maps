@@ -3,6 +3,10 @@ dist/
 dist-embedded/
 dev-dist/
 *.local
+# Never commit env files: the repo is public, and the upload tools read keys
+# from the environment. Public build settings go in the workflows instead.
+.env
+.env.*
 .DS_Store
 
 # Local test files (Avenza exports, agency maps) — never commit; repo is public

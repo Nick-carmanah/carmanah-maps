@@ -9,7 +9,7 @@
 
 import { bboxTouchesArea, type Area } from './area.ts'
 import { parseS3Url, presignGetUrl, type S3Credentials } from './s3-presign.ts'
-import type { SourceSpec } from './raster.ts'
+import type { SourceSpec } from './types.ts'
 
 export const CDSE_STAC = 'https://stac.dataspace.copernicus.eu/v1'
 export const CDSE_COLLECTION = 'sentinel-2-global-mosaics'
