@@ -32,7 +32,8 @@ export interface PackHeaderInfo {
   metadata: Record<string, unknown>
 }
 
-interface DirEntry {
+/** A directory entry: `runLength` consecutive tile ids share these bytes (0 = leaf pointer). */
+export interface DirEntry {
   tileId: number
   offset: number
   length: number
@@ -134,6 +135,7 @@ function writeHeader(
     addressed: number
     entries: number
     contents: number
+    clustered: boolean
   },
   info: PackHeaderInfo,
 ): Uint8Array {
@@ -153,7 +155,7 @@ function writeHeader(
   u64(72, h.addressed)
   u64(80, h.entries)
   u64(88, h.contents)
-  buf[96] = 1 // clustered
+  buf[96] = h.clustered ? 1 : 0
   buf[97] = PmCompression.None // internal (directory) compression
   buf[98] = info.tileCompression
   buf[99] = info.tileType
@@ -171,22 +173,20 @@ function writeHeader(
 }
 
 /**
- * Plan a PMTiles archive from tile sizes alone. The caller then writes
- * `plan.prefix` followed by each tile's bytes in `plan.tiles` order.
+ * Header, root directory, metadata and leaf directories for an archive whose
+ * tile-data section (`dataLength` bytes, written right after this prefix)
+ * is laid out as `entries` say. Entries must be sorted by tile id; several
+ * may point at the same bytes (deduplicated tiles), and `runLength` > 1
+ * covers consecutive tile ids.
  */
-export function planPack(tiles: TileRef[], info: PackHeaderInfo): PackPlan {
-  const planned: PlannedTile[] = tiles
-    .map((t) => ({ ...t, tileId: zxyToTileId(t.z, t.x, t.y), offset: 0 }))
-    .sort((a, b) => a.tileId - b.tileId)
-  let off = 0
-  for (const t of planned) {
-    t.offset = off
-    off += t.length
-  }
-  const entries: DirEntry[] = planned.map((t) => ({ tileId: t.tileId, offset: t.offset, length: t.length, runLength: 1 }))
+export function archivePrefix(
+  entries: DirEntry[],
+  dataLength: number,
+  info: PackHeaderInfo,
+  counts: { contents?: number; clustered?: boolean } = {},
+): Uint8Array {
   const { root, leaves } = optimizeDirectories(entries)
   const meta = new TextEncoder().encode(JSON.stringify(info.metadata))
-
   const rootOffset = HEADER_LEN
   const metaOffset = rootOffset + root.length
   const leafOffset = metaOffset + meta.length
@@ -200,18 +200,37 @@ export function planPack(tiles: TileRef[], info: PackHeaderInfo): PackPlan {
       leafOffset,
       leafLength: leaves.length,
       dataOffset,
-      dataLength: off,
-      addressed: planned.length,
-      entries: planned.length,
-      contents: planned.length,
+      dataLength,
+      addressed: entries.reduce((n, e) => n + e.runLength, 0),
+      entries: entries.length,
+      contents: counts.contents ?? entries.length,
+      clustered: counts.clustered ?? true,
     },
     info,
   )
+  return concat([header, root, meta, leaves])
+}
+
+/**
+ * Plan a PMTiles archive from tile sizes alone. The caller then writes
+ * `plan.prefix` followed by each tile's bytes in `plan.tiles` order.
+ */
+export function planPack(tiles: TileRef[], info: PackHeaderInfo): PackPlan {
+  const planned: PlannedTile[] = tiles
+    .map((t) => ({ ...t, tileId: zxyToTileId(t.z, t.x, t.y), offset: 0 }))
+    .sort((a, b) => a.tileId - b.tileId)
+  let off = 0
+  for (const t of planned) {
+    t.offset = off
+    off += t.length
+  }
+  const entries: DirEntry[] = planned.map((t) => ({ tileId: t.tileId, offset: t.offset, length: t.length, runLength: 1 }))
+  const prefix = archivePrefix(entries, off, info)
   return {
-    prefix: concat([header, root, meta, leaves]),
+    prefix,
     tiles: planned,
-    tileDataOffset: dataOffset,
+    tileDataOffset: prefix.length,
     tileDataLength: off,
-    totalLength: dataOffset + off,
+    totalLength: prefix.length + off,
   }
 }
