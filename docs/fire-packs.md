@@ -213,13 +213,17 @@ someone over AirDrop.
 
 ## 5. In the app
 
-| Size before downloading (website) | Lost signal mid-download (iOS app) | Drawn with no network (website) |
-|---|---|---|
-| ![The Offline maps sheet: fire C40983 chosen with a 5 km buffer, "9.8 MB · 2,116 tiles", a Download button, and a ready-made pack below](fire-packs/web-size-before-download.jpg) | ![The sheet in the iOS app: "Waiting for signal… 28%" with Pause and Delete](fire-packs/ios-waiting-for-signal.jpg) | ![The fire area at zoom 9.5 with roads, lakes, hillshade and the fire perimeter, drawn while no internet host could be reached](fire-packs/web-offline-fire.jpg) |
+![My Maps: the Base map row, with "Offline areas: 1 saved · 9.8 MB" under it](fire-packs/my-maps-offline-areas.jpg)
 
-**Offline maps** (the button above the map's bottom-right corner, in the
-website and the crew app alike) opens a sheet with the packs on this phone
-and **Download an area**:
+| Size before downloading (website) | Lost signal mid-download (iOS app) | No network (website) | No network (iOS app) |
+|---|---|---|---|
+| ![The Offline maps sheet: fire C40983 chosen with a 5 km buffer, "9.8 MB · 2,116 tiles", a Download button, and a ready-made pack below](fire-packs/web-size-before-download.jpg) | ![The sheet in the iOS app: "Waiting for signal… 28%" with Pause and Delete](fire-packs/ios-waiting-for-signal.jpg) | ![The fire area at zoom 9.5 with roads, lakes, hillshade and the fire perimeter, drawn while no internet host could be reached](fire-packs/web-offline-fire.jpg) | ![The same area in the iOS app, on a page that can reach no http(s) host at all](fire-packs/ios-offline-fire.jpg) |
+
+**My Maps → Base map → Offline areas** (the line under the Base map row,
+with what's saved, as Avenza lists a base map's downloads) opens the base
+map with the Offline maps sheet. So does the **Offline maps** button above the
+map's bottom-right corner. Both work on the website and in the crew app. The
+sheet lists the packs on this phone and has **Download an area**:
 
 - **A fire**: a live BCWS fire perimeter (Layers → Live fires on), nearest
   to the map first.

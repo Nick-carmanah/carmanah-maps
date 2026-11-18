@@ -287,6 +287,24 @@ describe('the map protocol', () => {
     expect(cache.get('openfreemap-tilejson')).toEqual(tj)
   })
 
+  it('never fetches anything but the same tile from its own server', async () => {
+    const t = await setup()
+    await t.registry.load()
+    const { handlePackRequest } = await import('../src/lib/packs/protocol')
+    const network = vi.fn(async () => new Response('x'))
+    const deps = { registry: t.registry, fetch: network as unknown as typeof fetch, getCache: async () => undefined, setCache: async () => {} }
+    const bad = [
+      `carmanah-pack://tile/basemap/14/1/2?u=${encodeURIComponent('https://evil.example/14/1/2.pbf')}`,
+      `carmanah-pack://tile/basemap/14/1/2?u=${encodeURIComponent('https://tiles.openfreemap.org/planet/b/14/9/9.pbf')}`,
+      `carmanah-pack://tile/terrain/14/1/2?u=${encodeURIComponent('https://tiles.openfreemap.org/planet/b/14/1/2.pbf')}`,
+    ]
+    for (const url of bad) await expect(handlePackRequest({ url }, new AbortController(), deps), url).rejects.toThrow(/bad pack tile fallback/)
+    expect(network).not.toHaveBeenCalled()
+    const good = `carmanah-pack://tile/terrain/12/1/2?u=${encodeURIComponent('https://s3.amazonaws.com/elevation-tiles-prod/terrarium/12/1/2.png')}`
+    await handlePackRequest({ url: good }, new AbortController(), deps)
+    expect(network).toHaveBeenCalledTimes(1)
+  })
+
   it('builds a TileJSON from the newest pack when nothing was ever saved', async () => {
     const t = await setup()
     const planned = await t.download.planCut(req, { url: `${BUCKET}basemap/bc/b1.pmtiles`, build: '20261115_080022_pt' }, { url: `${BUCKET}terrain/bc/v1.pmtiles` }, t.deps, undefined, READS)

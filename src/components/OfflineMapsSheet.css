@@ -99,7 +99,7 @@
   flex: none;
 }
 
-.seg {
+.offline-seg {
   display: flex;
   flex-wrap: wrap;
   align-items: center;

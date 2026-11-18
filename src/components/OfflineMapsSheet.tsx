@@ -305,7 +305,7 @@ export default function OfflineMapsSheet({ map, liveFires, userFeatures, native,
         {supported !== false && (
           <section>
             <h3>Download an area</h3>
-            <div className="seg" role="tablist">
+            <div className="offline-seg" role="tablist">
               {(
                 [
                   ['fire', 'A fire'],
@@ -347,7 +347,7 @@ export default function OfflineMapsSheet({ map, liveFires, userFeatures, native,
               ))}
             {choice === 'view' && <p className="offline-note">Everything on screen now.</p>}
 
-            <div className="seg" aria-label="Buffer">
+            <div className="offline-seg" aria-label="Buffer">
               <span className="muted">Plus</span>
               {BUFFERS.map((km) => (
                 <button key={km} className={`btn small${bufferKm === km ? ' active' : ''}`} onClick={() => setBufferKm(km)}>

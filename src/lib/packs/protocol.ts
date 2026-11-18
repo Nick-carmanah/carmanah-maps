@@ -128,9 +128,16 @@ export async function handlePackRequest(
   const m = PACK_URL.exec(params.url)
   if (!m) throw new Error(`bad pack URL: ${params.url}`)
   const [, source, z, x, y, encoded] = m
+  // The fallback must be the same tile on its own server: the protocol never
+  // fetches anything else, whatever URL it's handed.
+  const fallback = decodeURIComponent(encoded)
+  const own = tileOfUrl(fallback)
+  if (!own || own.source !== source || own.z !== +z || own.x !== +x || own.y !== +y) {
+    throw new Error(`bad pack tile fallback: ${fallback}`)
+  }
   const data = await deps.registry.tile(source as PackSource, +z, +x, +y)
   if (data) return { data }
-  const res = await deps.fetch(decodeURIComponent(encoded), { signal: abort.signal })
+  const res = await deps.fetch(fallback, { signal: abort.signal })
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
   return { data: await res.arrayBuffer() }
 }

@@ -32,7 +32,7 @@ function rclone(args: string[], inherit = false): string {
 function checkRemote(): void {
   const remotes = rclone(['listremotes']).split('\n').map((s) => s.trim())
   if (!remotes.includes(`${REMOTE}:`)) {
-    throw new Error(`No rclone remote "${REMOTE}". Set it up as in docs/hosting-r2.md §5 (or set R2_REMOTE).`)
+    throw new Error(`No rclone remote "${REMOTE}". Set it up as in docs/hosting-r2.md §4 (or set R2_REMOTE).`)
   }
 }
 

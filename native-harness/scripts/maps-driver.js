@@ -36,7 +36,14 @@
     try {
       await until(function () { return window.__map && window.__map.isStyleLoaded() }, 'map', 60000)
       var map = window.__map
+      // My Maps opens first: go to the base map (as a person would).
+      var openBase = function () {
+        var b = document.querySelector('button[aria-label="Open the base map"]')
+        if (b) b.click()
+      }
       if (cmd.step === 'download') {
+        openBase()
+        await sleep(800)
         map.jumpTo({ center: cmd.center, zoom: 9 })
         await sleep(2500)
         button('⬇ Offline maps').click()
@@ -54,10 +61,13 @@
         out.started = document.querySelector('.pack-list.saved .pack-meta').textContent
       } else if (cmd.step === 'resume') {
         await sleep(1500)
-        button('Saving') ? button('Saving').click() : button('⬇ Offline maps').click()
+        var entry = document.querySelector('.base-offline') || button('Saving') || button('⬇ Offline maps')
+        entry.click()
         await sleep(1500)
         out.rows = Array.prototype.map.call(document.querySelectorAll('.pack-list.saved .pack-row'), function (r) { return r.innerText })
       } else if (cmd.step === 'offline') {
+        openBase()
+        await sleep(800)
         out.views = []
         for (var i = 0; i < cmd.zooms.length; i++) {
           map.jumpTo({ center: cmd.center, zoom: cmd.zooms[i] })

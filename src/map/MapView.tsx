@@ -92,6 +92,8 @@ interface MapViewProps {
   basemap: Basemap
   /** Bump to open the coordinate search input (from the tools sheet). */
   openSearchNonce: number
+  /** Bump to open the Offline maps sheet (from My Maps → Base map). */
+  openOfflineNonce?: number
 }
 
 export default function MapView({
@@ -115,6 +117,7 @@ export default function MapView({
   onMapReady,
   basemap,
   openSearchNonce,
+  openOfflineNonce = 0,
 }: MapViewProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<MlMap | null>(null)
@@ -259,6 +262,10 @@ export default function MapView({
     }
     setSearchResults(results.slice(0, 8))
   }
+
+  useEffect(() => {
+    if (openOfflineNonce > 0) setOfflineOpen(true)
+  }, [openOfflineNonce])
 
   // Downloads carry on after the sheet closes: say when one finishes, and
   // pick up any the app was in the middle of when it last closed.
