@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { MapsLibrary, shareOrDownloadFile } from '../lib/library/library'
-import { importGeoPdf, type ImportProgress, type PagePickRequest } from '../lib/library/import'
+import { importGeoPdf, sharpenMap, type ImportProgress, type PagePickRequest } from '../lib/library/import'
+import { forgetMapTiles, mapTileUrl, registerMapTileProtocol } from '../lib/library/tile-protocol'
 import type { GeoPdfRegion } from '../lib/geopdf'
 import type { Corners, LibraryMap } from '../lib/library/types'
 import { readMapsContext, reloadOnOwnerChange } from '../lib/storage/owner'
@@ -12,7 +13,9 @@ export interface MapLayer {
   corners: Corners
   opacity: number
   visible: boolean
-  /** Object URL of the map's image, once read from storage. */
+  /** Tiled maps: a raster tile source read through the map-tile protocol. */
+  tiles?: { url: string; minzoom: number; maxzoom: number; bounds: [number, number, number, number] }
+  /** Single-image maps: object URL of the image, once read from storage. */
   imageUrl?: string
 }
 
@@ -44,6 +47,17 @@ export function useMapsLibrary(notify: Notify) {
 
   useEffect(() => reloadOnOwnerChange(context.ownerId), [context.ownerId])
 
+  // Tiles are read straight from this person's file store.
+  const mapsRef = useRef(maps)
+  mapsRef.current = maps
+  useEffect(() => {
+    if (!library) return
+    registerMapTileProtocol((id) => {
+      const map = mapsRef.current.find((m) => m.id === id)
+      return map?.raster.kind === 'tiles' ? { files: library.files, path: map.raster.path } : null
+    })
+  }, [library])
+
   useEffect(() => {
     let live = true
     MapsLibrary.open(context.ownerId)
@@ -66,6 +80,7 @@ export function useMapsLibrary(notify: Notify) {
   useEffect(() => {
     if (!library) return
     for (const map of maps) {
+      if (map.raster.kind === 'tiles') continue
       if (!map.visible || imageUrls.has(map.id) || loadingUrls.current.has(map.id)) continue
       loadingUrls.current.add(map.id)
       library
@@ -102,6 +117,10 @@ export function useMapsLibrary(notify: Notify) {
           corners: m.corners,
           opacity: m.opacity,
           visible: m.visible,
+          tiles:
+            m.raster.kind === 'tiles'
+              ? { url: mapTileUrl(m.id), minzoom: m.raster.minzoom, maxzoom: m.raster.maxzoom, bounds: m.raster.bounds }
+              : undefined,
           imageUrl: imageUrls.get(m.id),
         })),
     [maps, imageUrls],
@@ -122,6 +141,7 @@ export function useMapsLibrary(notify: Notify) {
     async (id: string) => {
       if (!library) return
       await library.remove(id)
+      forgetMapTiles(id)
       setMaps((prev) => prev.filter((m) => m.id !== id))
     },
     [library],
@@ -202,8 +222,44 @@ export function useMapsLibrary(notify: Notify) {
     [library, context.ownerId, defaultFolder],
   )
 
+  /** Re-draw an older single-image map from its kept original, as sharp tiles. */
+  const sharpen = useCallback(
+    async (map: LibraryMap) => {
+      if (!library) return
+      const abort = new AbortController()
+      const cancel = () => abort.abort()
+      const fileName = map.name
+      setImportStatus({ fileName, label: 'Reading the original', fraction: 0, cancel })
+      try {
+        const next = await sharpenMap(library, map, {
+          signal: abort.signal,
+          onProgress: (p) => setImportStatus({ fileName, ...p, cancel }),
+        })
+        forgetMapTiles(map.id)
+        const url = imageUrls.get(map.id)
+        if (url) {
+          URL.revokeObjectURL(url)
+          setImageUrls((prev) => {
+            const nextUrls = new Map(prev)
+            nextUrls.delete(map.id)
+            return nextUrls
+          })
+        }
+        setMaps((prev) => prev.map((m) => (m.id === map.id ? next : m)))
+        notifyRef.current(`"${map.name}" is now sharp to about ${next.raster.kind === 'tiles' ? next.raster.dpi : 300} DPI`)
+      } catch (err) {
+        if ((err as DOMException).name === 'AbortError') notifyRef.current('Stopped — the map is unchanged')
+        else notifyRef.current(`Couldn't sharpen "${map.name}": ${(err as Error).message}`, true)
+      } finally {
+        setImportStatus(null)
+      }
+    },
+    [library, imageUrls],
+  )
+
   return {
     ownerId: context.ownerId,
+    sharpen,
     ready: library !== null,
     storageBackend: library?.files.backend ?? null,
     maps,

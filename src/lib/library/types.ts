@@ -26,7 +26,21 @@ export interface MapSourceInfo {
 
 /** How the map is drawn on the map view. */
 export type MapRaster =
-  /** One image of the whole map (2,200 px on its long edge), in the owner's file store. */
+  /**
+   * A Web Mercator tile pyramid, sharp to about 300 DPI of the paper map,
+   * as one PMTiles archive in the owner's file store (512 px tiles).
+   */
+  | {
+      kind: 'tiles'
+      path: string
+      minzoom: number
+      maxzoom: number
+      /** w, s, e, n */
+      bounds: [number, number, number, number]
+      tileCount: number
+      dpi: number
+    }
+  /** One image of the whole map (2,200 px on its long edge): maps imported before tiles. */
   | { kind: 'image'; path: string; width: number; height: number }
   /** A map saved before the library existed: its image is still in the old `carmanah-maps` database. */
   | { kind: 'legacy'; rasterId: string }

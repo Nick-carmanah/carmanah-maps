@@ -604,6 +604,7 @@ export default function App() {
               }}
               readOriginal={maps.readOriginal}
               onShare={maps.shareFile}
+              onSharpen={maps.sharpen}
             />
           </div>
         )}
