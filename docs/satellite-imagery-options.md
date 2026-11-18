@@ -17,7 +17,8 @@ or days, so any imagery we show has to be:
 Today the satellite layer is Esri World Imagery, fetched from
 `server.arcgisonline.com` with no account (`src/map/basemap.ts`). The service
 worker keeps every tile it sees for 90 days (`vite.config.ts`). "Save offline"
-doesn't download satellite tiles; the export doesn't offer satellite.
+doesn't download satellite tiles. "Send this area as a map" (#13) leaves
+satellite out on purpose (`SATELLITE_NOTE` in `src/lib/send-area.ts`).
 
 ## Recommendation
 
@@ -158,7 +159,7 @@ $0.15 per 1,000 tiles").
 **What this means for us:** today the service worker keeps Esri tiles for
 offline use, which the terms forbid, and we use the service without an
 account. Printing it into exported maps would break the terms too, which is
-why the send-area export (PR #13) leaves satellite out.
+why the send-area export (#13) leaves satellite out.
 
 ## BC Government imagery (Open Government Licence – BC?)
 
@@ -355,5 +356,7 @@ domain. It stops at the border, so it's no use in BC.
   add the new host).
 - `src/lib/mappacks.ts`: add satellite tiles to "Save offline" (counted
   against the tile cap on the website).
-- The send-area export (PR #13): offer satellite and print its credit.
+- The send-area export: stop filtering `satellite` out in
+  `src/map/print-render.ts`, add its credit to `attributionLines()` and drop
+  `SATELLITE_NOTE` in `src/lib/send-area.ts`.
 - The layer picker: show the imagery year next to "Satellite".
