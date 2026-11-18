@@ -9,28 +9,53 @@ import {
   getUnitSettings,
 } from './units'
 
-/** A user-created map object: dropped pin, drawn line, or drawn area. */
+/** A map object in My Data: dropped pin, drawn line or area, recorded
+ * track, or anything imported (KML/KMZ, GPX, shapefile, CSV). Every feature
+ * belongs to one layer (see layers.ts), which owns its schema and default
+ * style. Style fields left undefined fall back to the defaults below. */
 export interface UserFeature {
   id: string
   kind: 'pin' | 'line' | 'area'
   name: string
   notes: string
+  /** Pin colour, or the line/outline colour of a line or area. */
   color: string
   /** Pin: single position. Line/area: vertex list (area ring is unclosed). */
   coordinates: Position | Position[]
-  /** Fire-ops symbol key (pins only); empty/undefined = plain dot. */
+  /** Areas only: inner rings (holes, e.g. unburned islands), each unclosed. */
+  holes?: Position[][]
+  /** Pin symbol: a FIRE_SYMBOLS key, an NWCG key ('nwcg-…'), or an icon
+   * imported from a KMZ ('icon-<id>', stored in the icons store).
+   * Empty/undefined = plain dot. */
   symbol?: string
-  /** Display layer, e.g. "Danger trees" — the unit of sharing/visibility. */
+  /** Remote icon URL kept from an import (e.g. Avenza's own pin icons) so a
+   * re-export shows the same icon there. Never fetched by us. */
+  iconHref?: string
+  /** Owning layer id (layers.ts). */
+  layerId: string
+  /** @deprecated Layer *name* from before layers existed. Only the one-time
+   * migration (mydata.ts) reads it; it is removed from migrated records. */
   layer?: string
+  /** Line/outline width in px (default DEFAULT_LINE_WIDTH). */
+  width?: number
+  /** Area fill colour (default: the line colour). */
+  fill?: string
+  /** Area fill opacity 0–1 (default DEFAULT_FILL_OPACITY). */
+  fillOpacity?: number
   /** Per-vertex timestamps for recorded tracks (parallel to coordinates). */
   times?: number[]
-  /** Custom attribute fields, in display order. */
+  /** Attribute values, in display order. Values are text; the layer schema
+   * (layers.ts) says which are typed fields. Keys not in the schema are
+   * per-feature fields. */
   attributes?: { k: string; v: string }[]
   /** Entry/exit alerting. Radius applies to pin and line fences. */
   geofence?: { enabled: boolean; radiusM?: number }
   createdAt: number
   updatedAt: number
 }
+
+export const DEFAULT_LINE_WIDTH = 3
+export const DEFAULT_FILL_OPACITY = 0.25
 
 /** Built-in fire-ops symbol set (Avenza Pro makes you import these). */
 export const FIRE_SYMBOLS: Record<
@@ -58,14 +83,11 @@ export const FIRE_SYMBOLS: Record<
   camp: { label: 'Camp', color: '#78350f', text: 'C', shape: 'circle', layer: 'Operations' },
 }
 
+/** Layer that new features of each kind land in when nothing else applies. */
 export const DEFAULT_LAYERS: Record<UserFeature['kind'], string> = {
   pin: 'Placemarks',
   line: 'Lines',
   area: 'Areas',
-}
-
-export function featureLayer(f: UserFeature): string {
-  return f.layer || DEFAULT_LAYERS[f.kind]
 }
 
 /** Rasterize a symbol for maplibre addImage (drawn at 2x for retina). */
@@ -126,8 +148,11 @@ export function featureGeometry(f: UserFeature): Feature['geometry'] {
   if (f.kind === 'line') {
     return { type: 'LineString', coordinates: f.coordinates as Position[] }
   }
-  const ring = f.coordinates as Position[]
-  return { type: 'Polygon', coordinates: [[...ring, ring[0]]] }
+  const close = (ring: Position[]) => [...ring, ring[0]]
+  return {
+    type: 'Polygon',
+    coordinates: [close(f.coordinates as Position[]), ...(f.holes ?? []).map(close)],
+  }
 }
 
 export function featuresToGeoJSON(features: UserFeature[]): FeatureCollection {
@@ -142,6 +167,9 @@ export function featuresToGeoJSON(features: UserFeature[]): FeatureCollection {
         notes: f.notes,
         color: f.color,
         symbol: f.symbol ?? '',
+        width: f.width ?? DEFAULT_LINE_WIDTH,
+        fill: f.fill ?? f.color,
+        fillOpacity: f.fillOpacity ?? DEFAULT_FILL_OPACITY,
       },
       geometry: featureGeometry(f),
     })),
@@ -152,9 +180,9 @@ export function featuresToGeoJSON(features: UserFeature[]): FeatureCollection {
 export function featureStat(f: UserFeature): string {
   if (f.kind === 'pin') return formatCoord(f.coordinates as Position, getUnitSettings().coords)
   const pts = f.coordinates as Position[]
-  return f.kind === 'line'
-    ? formatDistance(pathLengthMeters(pts))
-    : formatArea(ringAreaSqMeters(pts))
+  if (f.kind === 'line') return formatDistance(pathLengthMeters(pts))
+  const holes = (f.holes ?? []).reduce((sum, h) => sum + ringAreaSqMeters(h), 0)
+  return formatArea(Math.max(0, ringAreaSqMeters(pts) - holes))
 }
 
 /** The feature sheet's numbers: featureStat plus perimeter, or a track's time, speed and pace. */
