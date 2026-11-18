@@ -1,6 +1,7 @@
 import type { Feature, FeatureCollection, Position } from 'geojson'
 import { formatCoord } from './coords'
 import { pathLengthMeters, ringAreaSqMeters } from './measure'
+import { segmentedDurationMs, segmentedLengthM, splitSegments } from './track'
 import {
   formatArea,
   formatDistance,
@@ -44,6 +45,10 @@ export interface UserFeature {
   fillOpacity?: number
   /** Per-vertex timestamps for recorded tracks (parallel to coordinates). */
   times?: number[]
+  /** Lines only: a track that was paused and resumed. Index of the first
+   * vertex of each later segment; nothing is drawn or measured across the
+   * gap before it (see track.ts). */
+  segmentStarts?: number[]
   /** Attribute values, in display order. Values are text; the layer schema
    * (layers.ts) says which are typed fields. Keys not in the schema are
    * per-feature fields. */
@@ -146,7 +151,11 @@ export function featureGeometry(f: UserFeature): Feature['geometry'] {
     return { type: 'Point', coordinates: f.coordinates as Position }
   }
   if (f.kind === 'line') {
-    return { type: 'LineString', coordinates: f.coordinates as Position[] }
+    const coords = f.coordinates as Position[]
+    const parts = splitSegments(coords, f.segmentStarts).filter((p) => p.length >= 2)
+    return parts.length > 1
+      ? { type: 'MultiLineString', coordinates: parts }
+      : { type: 'LineString', coordinates: parts[0] ?? coords }
   }
   const close = (ring: Position[]) => [...ring, ring[0]]
   return {
@@ -180,7 +189,7 @@ export function featuresToGeoJSON(features: UserFeature[]): FeatureCollection {
 export function featureStat(f: UserFeature): string {
   if (f.kind === 'pin') return formatCoord(f.coordinates as Position, getUnitSettings().coords)
   const pts = f.coordinates as Position[]
-  if (f.kind === 'line') return formatDistance(pathLengthMeters(pts))
+  if (f.kind === 'line') return formatDistance(segmentedLengthM(pts, f.segmentStarts))
   const holes = (f.holes ?? []).reduce((sum, h) => sum + ringAreaSqMeters(h), 0)
   return formatArea(Math.max(0, ringAreaSqMeters(pts) - holes))
 }
@@ -194,13 +203,16 @@ export function featureDetails(f: UserFeature): string[] {
   }
   const times = f.times
   if (f.kind === 'line' && times && times.length >= 2) {
-    const durationMs = times[times.length - 1] - times[0]
-    const meters = pathLengthMeters(f.coordinates as Position[])
+    // Time and distance while recording: pauses (segment gaps) left out.
+    const durationMs = segmentedDurationMs(times, f.segmentStarts)
+    const meters = segmentedLengthM(f.coordinates as Position[], f.segmentStarts)
     if (durationMs > 0) {
       out.push(`avg ${formatSpeed(meters / (durationMs / 1000))}`)
       const pace = formatPace(durationMs, meters)
       if (pace) out.push(pace)
     }
   }
+  const pauses = f.kind === 'line' ? splitSegments(f.coordinates as Position[], f.segmentStarts).length - 1 : 0
+  if (pauses > 0) out.push(`paused ${pauses}×`)
   return out
 }

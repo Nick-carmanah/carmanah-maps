@@ -113,7 +113,7 @@ export const MAP_STYLE: maplibregl.StyleSpecification = {
       ],
       tileSize: 256,
       maxzoom: 19,
-      attribution: 'Imagery: Esri, Maxar, Earthstar Geographics',
+      attribution: 'Imagery: Esri, Vantor, Earthstar Geographics, and the GIS User Community',
     },
     // AWS open elevation tiles (terrarium encoding) for 3D terrain and hillshade.
     terrain: {

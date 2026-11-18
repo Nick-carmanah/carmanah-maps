@@ -38,7 +38,13 @@ import {
   formatSpeed,
 } from './lib/units'
 import { useUnitSettings } from './hooks/useUnitSettings'
-import { formatDuration, trackStats, useTrackRecorder } from './hooks/useTrackRecorder'
+import {
+  formatDuration,
+  trackSegmentStarts,
+  trackStats,
+  useTrackRecorder,
+} from './hooks/useTrackRecorder'
+import { useGpsTools } from './hooks/useGpsTools'
 import { conventionActive, buildConventionName, getProfile, saveProfile } from './lib/naming'
 import { readMapsContext } from './lib/storage/owner'
 import { EMBEDDED } from './lib/embedded'
@@ -385,9 +391,21 @@ export default function App() {
       kind: UserFeature['kind'],
       coordinates: Position | Position[],
       notes = '',
-      opts: { label?: string; color?: string; layer?: string; times?: number[] } = {},
+      opts: {
+        label?: string
+        color?: string
+        layer?: string
+        /** An existing layer to use instead of `layer` (by name). */
+        layerId?: string | null
+        times?: number[]
+        segmentStarts?: number[]
+        attributes?: { k: string; v: string }[]
+      } = {},
     ) => {
-      const layerId = ensureLayer(opts.layer ?? DEFAULT_LAYERS[kind])
+      const layerId =
+        opts.layerId && layersRef.current.some((l) => l.id === opts.layerId)
+          ? opts.layerId
+          : ensureLayer(opts.layer ?? DEFAULT_LAYERS[kind])
       const layer = layersRef.current.find((l) => l.id === layerId)
       const label = opts.label ?? { pin: 'Pin', line: 'Line', area: 'Area' }[kind]
       // Workshop naming convention (What_When_Where_Who) once a profile is set.
@@ -410,6 +428,8 @@ export default function App() {
         ...(kind !== 'pin' && layer?.style.width !== undefined ? { width: layer.style.width } : {}),
         ...(kind === 'pin' && layer?.style.symbol ? { symbol: layer.style.symbol } : {}),
         times: opts.times,
+        ...(opts.segmentStarts?.length ? { segmentStarts: opts.segmentStarts } : {}),
+        ...(opts.attributes?.length ? { attributes: opts.attributes } : {}),
         createdAt: Date.now(),
         updatedAt: Date.now(),
       }
@@ -465,10 +485,39 @@ export default function App() {
         color: '#38bdf8',
         layer: as === 'area' ? 'Areas' : 'Tracks',
         times: as === 'line' ? track.points.map((p) => p.time) : undefined,
+        // Pauses stay gaps in the saved track.
+        segmentStarts: as === 'line' ? trackSegmentStarts(track.points) : undefined,
       })
       track.discard()
     },
     [track, createFeature, showToast],
+  )
+
+  const gpsTools = useGpsTools({
+    map: mainMap,
+    layers,
+    features: userFeatures,
+    ensureLayer,
+    createPin: (position, notes, opts) => createFeature('pin', position, notes, opts),
+    onPlotted: (features) => {
+      setUserFeatures((prev) => [...prev, ...features])
+      const bounds = boundsOf(featuresToGeoJSON(features))
+      if (bounds) setFocusRequest({ id: features[0].id, nonce: Date.now(), bounds })
+    },
+    notify: showToast,
+    onBeforeTool: () => {
+      setPinMode(false)
+      setMeasuring(false)
+    },
+  })
+
+  // The live track as the map draws it: positions, and where it resumed.
+  const liveTrack = useMemo(
+    () => ({
+      positions: track.points.map((p) => p.position),
+      breaks: trackSegmentStarts(track.points),
+    }),
+    [track.points],
   )
 
   const handleFeatureChange = useCallback((feature: UserFeature) => {
@@ -631,7 +680,8 @@ export default function App() {
           userFeatures={userFeatures}
           hiddenLayerIds={hiddenLayers}
           showGrid={gridOn}
-          trackPoints={track.points.map((p) => p.position)}
+          trackPoints={liveTrack.positions}
+          trackBreaks={liveTrack.breaks}
           navLine={
             nav.position && navTarget ? [nav.position, navTargetPosition(navTarget)] : null
           }
@@ -786,11 +836,13 @@ export default function App() {
                     },
                   },
                   {
-                    icon: track.phase === 'recording' ? '⏹' : '⏺',
+                    icon: track.phase === 'recording' || track.phase === 'paused' ? '⏹' : '⏺',
                     label:
-                      track.phase === 'recording' ? 'Stop GPS track' : 'Record GPS track',
+                      track.phase === 'recording' || track.phase === 'paused'
+                        ? 'Stop GPS track'
+                        : 'Record GPS track',
                     action: () => {
-                      if (track.phase === 'recording') track.stop()
+                      if (track.phase === 'recording' || track.phase === 'paused') track.stop()
                       else if (track.phase === 'idle') {
                         setPinMode(false)
                         setMeasuring(false)
@@ -803,6 +855,7 @@ export default function App() {
                     label: 'Find by coordinates or name',
                     action: () => setSearchNonce((n) => n + 1),
                   },
+                  ...gpsTools.tools,
                   {
                     icon: '📂',
                     label: 'Import KML/KMZ, GPX, CSV, shapefile or GeoPDF',
@@ -860,6 +913,7 @@ export default function App() {
             <div className="track-chip">
               <span className="readout">
                 {track.phase === 'recording' && <span className="rec-dot" />}
+                {track.phase === 'paused' && 'Paused · '}
                 {formatDistance(stats.distanceM)} · {formatDuration(stats.durationMs)}
                 {stats.avgSpeedKmh > 0 && ` · ${formatSpeed(stats.avgSpeedKmh / 3.6)}`}
                 {track.phase === 'review' &&
@@ -868,6 +922,16 @@ export default function App() {
                 {stats.elevGainM != null && ` · +${formatAltitude(stats.elevGainM)}`}
               </span>
               {track.phase === 'recording' && (
+                <button className="btn" onClick={track.pause}>
+                  ⏸ Pause
+                </button>
+              )}
+              {track.phase === 'paused' && (
+                <button className="btn" onClick={track.resume}>
+                  ▶ Resume
+                </button>
+              )}
+              {(track.phase === 'recording' || track.phase === 'paused') && (
                 <button className="btn" onClick={track.stop}>
                   ⏹ Stop
                 </button>
@@ -1032,6 +1096,8 @@ export default function App() {
         <PagePicker request={maps.pendingPick.request} onDone={maps.pendingPick.resolve} />
       )}
       {maps.importStatus && !maps.pendingPick && <ImportChip status={maps.importStatus} />}
+
+      {gpsTools.view}
 
       {toast && <div className={`toast${toast.isError ? ' error' : ''}`}>{toast.message}</div>}
     </div>

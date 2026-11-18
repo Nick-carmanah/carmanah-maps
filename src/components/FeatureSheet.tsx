@@ -23,6 +23,8 @@ import { buildConventionName, TRACK_TYPES } from '../lib/naming'
 import { NWCG_SYMBOLS, nwcgIconUrl } from '../lib/nwcg'
 import { getIcon } from '../lib/store'
 import { ICON_PREFIX, isImportedIcon } from '../lib/symbols'
+import { navTargetPosition } from '../hooks/useNavigation'
+import GoogleMapsButton from './GoogleMapsButton'
 
 export interface PhotoThumb {
   id: string
@@ -411,6 +413,10 @@ export default function FeatureSheet({
               e.target.value = ''
             }}
           />
+        </div>
+
+        <div className="feature-links">
+          <GoogleMapsButton position={navTargetPosition(feature)} />
         </div>
 
         <div className="sheet-row">

@@ -13,8 +13,16 @@
 export const MAPS_CONTEXT_KEY = 'carmanah.mapsContext.v1'
 export const GUEST_OWNER = 'guest'
 
-/** File-name safe, per the contract: letters, digits, `-`, `_` only. */
-const OWNER_ID_RE = /^[A-Za-z0-9_-]{1,64}$/
+/**
+ * File-name safe, per the contract: letters, digits, `-`, `_` only. Names
+ * starting with `_` are ours, for things that belong to nobody (the shared
+ * basemap packs live in `maps/_packs/`), so an owner can never be one of them.
+ */
+const OWNER_ID_RE = /^[A-Za-z0-9-][A-Za-z0-9_-]{0,63}$/
+
+export function isOwnerId(value: unknown): value is string {
+  return typeof value === 'string' && OWNER_ID_RE.test(value)
+}
 
 export interface MapsContext {
   /** Validated owner id; `guest` when there's no usable hand-off. */
@@ -42,8 +50,7 @@ export function parseMapsContext(raw: string | null): MapsContext {
   } catch {
     // Not JSON: treat as no hand-off.
   }
-  const ownerId =
-    typeof data.ownerId === 'string' && OWNER_ID_RE.test(data.ownerId) ? data.ownerId : GUEST_OWNER
+  const ownerId = isOwnerId(data.ownerId) ? data.ownerId : GUEST_OWNER
   return {
     ownerId,
     fireNumber: cleanText(data.fireNumber ?? data.fire_number ?? data.fire),
@@ -61,16 +68,48 @@ export function readMapsContext(): MapsContext {
   return parseMapsContext(raw)
 }
 
+let pageOwner: string | undefined
+
+/**
+ * The owner for this page load. Read once, on first use, and fixed until the
+ * page reloads: every personal store (layers, features, photos, maps,
+ * settings) uses this one id, so nothing can mix two people's data. If the
+ * hand-off changes while the page is open, the page reloads (below).
+ */
+export function pageOwnerId(): string {
+  if (pageOwner === undefined) {
+    pageOwner = readMapsContext().ownerId
+    if (typeof window !== 'undefined') reloadOnOwnerChange(pageOwner)
+  }
+  return pageOwner
+}
+
 /**
  * The crew app clears or replaces the hand-off when someone signs out or in.
- * If that happens in another tab while this page is open, the page must not
- * keep showing the previous person's maps, so reload it under the new owner.
+ * If that happens while this page is open, the page must not keep showing
+ * the previous person's data, so reload it under the new owner. Checked when
+ * another page changes the hand-off, and whenever this page comes back into
+ * view (including from the back/forward cache, where it missed those events).
  */
 export function reloadOnOwnerChange(currentOwnerId: string): () => void {
-  const onStorage = (e: StorageEvent) => {
-    if (e.key !== MAPS_CONTEXT_KEY && e.key !== null) return
+  const check = () => {
     if (readMapsContext().ownerId !== currentOwnerId) location.reload()
   }
+  const onStorage = (e: StorageEvent) => {
+    if (e.key === MAPS_CONTEXT_KEY || e.key === null) check()
+  }
+  const onPageShow = (e: PageTransitionEvent) => {
+    if (e.persisted) check()
+  }
+  const onVisible = () => {
+    if (document.visibilityState === 'visible') check()
+  }
   window.addEventListener('storage', onStorage)
-  return () => window.removeEventListener('storage', onStorage)
+  window.addEventListener('pageshow', onPageShow)
+  document.addEventListener('visibilitychange', onVisible)
+  return () => {
+    window.removeEventListener('storage', onStorage)
+    window.removeEventListener('pageshow', onPageShow)
+    document.removeEventListener('visibilitychange', onVisible)
+  }
 }

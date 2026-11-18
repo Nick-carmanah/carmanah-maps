@@ -1,7 +1,25 @@
-import { openDB, type DBSchema } from 'idb'
 import type { FeatureCollection, Position } from 'geojson'
 import type { UserFeature } from './features'
 import type { Layer } from './layers'
+import { GUEST_OWNER, pageOwnerId } from './storage/owner'
+import { openOwnerDb } from './storage/owner-db'
+import { getSharedCache, setSharedCache, SHARED_CACHE_KEYS } from './storage/shared-db'
+import { LegacyMigrationError, migrateLegacyData } from './storage/legacy-migration'
+
+/**
+ * My Data on the phone: layers, features, photos, icons and personal
+ * key-value data, plus the Maps library's pre-library images. All of it is
+ * personal, so it lives in the page owner's own database,
+ * `carmanah-maps.<ownerId>` (storage/owner-db.ts; plan §0, shared phones).
+ * The owner is fixed for the page load (storage/owner.ts), so these
+ * functions never mix two people's data.
+ *
+ * Before owners, all of this was in one shared `carmanah-maps` database. The
+ * guest's first load copies it across (storage/legacy-migration.ts) before
+ * any of these functions answers. The shared database now keeps only caches
+ * that are nobody's (getCached/setCached with a SHARED_CACHE_KEYS key, e.g.
+ * live fires).
+ */
 
 export interface RasterOverlay {
   id: string
@@ -22,44 +40,6 @@ export interface Overlay {
   geojson: FeatureCollection
 }
 
-interface CarmanahDB extends DBSchema {
-  overlays: {
-    key: string
-    value: Overlay
-  }
-  // Generic key-value cache (live fire data, future map-pack manifests…).
-  kv: {
-    key: string
-    value: unknown
-  }
-  // User-created pins, lines, and areas.
-  features: {
-    key: string
-    value: UserFeature
-  }
-  // Photos attached to user features.
-  photos: {
-    key: string
-    value: FeaturePhoto
-    indexes: { byFeature: string }
-  }
-  // Georeferenced raster imports (e.g. from GeoPDF).
-  rasters: {
-    key: string
-    value: RasterOverlay
-  }
-  // My Data layers (layers.ts): tree, saved visibility, default style, schema.
-  layers: {
-    key: string
-    value: Layer
-  }
-  // Custom placemark icons restored from imported KMZ files.
-  icons: {
-    key: string
-    value: IconAsset
-  }
-}
-
 /** A placemark icon image from an imported KMZ (features use 'icon-<id>'). */
 export interface IconAsset {
   id: string
@@ -75,78 +55,83 @@ export interface FeaturePhoto {
   createdAt: number
 }
 
-const dbPromise = openDB<CarmanahDB>('carmanah-maps', 6, {
-  upgrade(db, oldVersion) {
-    if (oldVersion < 1) db.createObjectStore('overlays', { keyPath: 'id' })
-    if (oldVersion < 2) db.createObjectStore('kv')
-    if (oldVersion < 3) db.createObjectStore('features', { keyPath: 'id' })
-    if (oldVersion < 4) {
-      const photos = db.createObjectStore('photos', { keyPath: 'id' })
-      photos.createIndex('byFeature', 'featureId')
-    }
-    if (oldVersion < 5) db.createObjectStore('rasters', { keyPath: 'id' })
-    // v6 (layers). Checked by name, not version, so another branch's upgrade
-    // can land in either order: whoever merges second just bumps the number.
-    if (!db.objectStoreNames.contains('layers')) db.createObjectStore('layers', { keyPath: 'id' })
-    if (!db.objectStoreNames.contains('icons')) db.createObjectStore('icons', { keyPath: 'id' })
-  },
-})
+let ready: Promise<void> | undefined
+
+/** The page owner's database, once any old data has been moved into it. */
+async function db() {
+  const ownerId = pageOwnerId()
+  ready ??=
+    ownerId === GUEST_OWNER
+      ? migrateLegacyData().then(
+          () => {},
+          (err: LegacyMigrationError) => {
+            // Until the first copy lands, the guest database is incomplete:
+            // answer nothing rather than an empty My Data (nothing is lost;
+            // the old database is untouched and the next load tries again).
+            if (err.firstCopy) throw new Error(`${err.message}. Your data is safe; reload to try again.`)
+            console.error(err)
+          },
+        )
+      : Promise.resolve()
+  await ready
+  return openOwnerDb(ownerId)
+}
 
 export async function listRasters(): Promise<RasterOverlay[]> {
-  const all = await (await dbPromise).getAll('rasters')
+  const all = await (await db()).getAll('rasters')
   return all.sort((a, b) => b.addedAt - a.addedAt)
 }
 
 export async function saveRaster(raster: RasterOverlay): Promise<void> {
-  await (await dbPromise).put('rasters', raster)
+  await (await db()).put('rasters', raster)
 }
 
 export async function deleteRaster(id: string): Promise<void> {
-  await (await dbPromise).delete('rasters', id)
+  await (await db()).delete('rasters', id)
 }
 
 export async function listPhotos(featureId: string): Promise<FeaturePhoto[]> {
-  const all = await (await dbPromise).getAllFromIndex('photos', 'byFeature', featureId)
+  const all = await (await db()).getAllFromIndex('photos', 'byFeature', featureId)
   return all.sort((a, b) => a.createdAt - b.createdAt)
 }
 
 export async function savePhoto(photo: FeaturePhoto): Promise<void> {
-  await (await dbPromise).put('photos', photo)
+  await (await db()).put('photos', photo)
 }
 
 export async function deletePhoto(id: string): Promise<void> {
-  await (await dbPromise).delete('photos', id)
+  await (await db()).delete('photos', id)
 }
 
 export async function deletePhotosForFeature(featureId: string): Promise<void> {
   const photos = await listPhotos(featureId)
-  const db = await dbPromise
-  await Promise.all(photos.map((p) => db.delete('photos', p.id)))
+  const store = await db()
+  await Promise.all(photos.map((p) => store.delete('photos', p.id)))
 }
 
 export async function listFeatures(): Promise<UserFeature[]> {
-  const all = await (await dbPromise).getAll('features')
+  const all = await (await db()).getAll('features')
   return all.sort((a, b) => a.createdAt - b.createdAt)
 }
 
 export async function saveFeature(feature: UserFeature): Promise<void> {
-  await (await dbPromise).put('features', feature)
+  await (await db()).put('features', feature)
 }
 
 export async function deleteFeature(id: string): Promise<void> {
-  await (await dbPromise).delete('features', id)
+  await (await db()).delete('features', id)
 }
 
 export async function listLayers(): Promise<Layer[]> {
-  return (await dbPromise).getAll('layers')
+  return (await db()).getAll('layers')
 }
 
 export async function saveLayer(layer: Layer): Promise<void> {
-  await (await dbPromise).put('layers', layer)
+  await (await db()).put('layers', layer)
 }
 
 export async function getIcon(id: string): Promise<IconAsset | undefined> {
-  return (await dbPromise).get('icons', id)
+  return (await db()).get('icons', id)
 }
 
 /** Several writes across stores in ONE transaction: all land or none do.
@@ -159,10 +144,10 @@ export async function writeBatch(batch: {
   deleteLayerIds?: string[]
   /** Also deletes these features' photos. */
   deleteFeatureIds?: string[]
+  /** Personal key-value data (never a shared cache key). */
   kv?: Record<string, unknown>
 }): Promise<void> {
-  const db = await dbPromise
-  const tx = db.transaction(['layers', 'features', 'photos', 'icons', 'kv'], 'readwrite')
+  const tx = (await db()).transaction(['layers', 'features', 'photos', 'icons', 'kv'], 'readwrite')
   const ops: Promise<unknown>[] = []
   for (const l of batch.layers ?? []) ops.push(tx.objectStore('layers').put(l))
   for (const f of batch.features ?? []) ops.push(tx.objectStore('features').put(f))
@@ -184,19 +169,21 @@ export async function writeBatch(batch: {
   await Promise.all([...ops, tx.done])
 }
 
+/** Personal key-value data, or a shared cache for a SHARED_CACHE_KEYS key. */
 export async function getCached<T>(key: string): Promise<T | undefined> {
-  return (await (await dbPromise).get('kv', key)) as T | undefined
+  if (SHARED_CACHE_KEYS.has(key)) return getSharedCache<T>(key)
+  return (await (await db()).get('kv', key)) as T | undefined
 }
 
 export async function setCached(key: string, value: unknown): Promise<void> {
-  await (await dbPromise).put('kv', value, key)
+  if (SHARED_CACHE_KEYS.has(key)) return setSharedCache(key, value)
+  await (await db()).put('kv', value, key)
 }
 
 export async function listOverlays(): Promise<Overlay[]> {
-  const all = await (await dbPromise).getAll('overlays')
+  const all = await (await db()).getAll('overlays')
   return all.sort((a, b) => b.addedAt - a.addedAt)
 }
-
 
 /** Ask the browser not to evict our offline data under storage pressure. */
 export function requestPersistentStorage(): void {

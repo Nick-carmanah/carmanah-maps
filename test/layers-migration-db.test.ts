@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 /**
- * End-to-end migration on a real (in-memory) IndexedDB: seed the v5 database
- * the app shipped before layers, then let the storage code upgrade it to v6
- * and migrate. Nothing may be lost, and loading twice must not duplicate.
- * The app's modules are imported only after seeding, because the storage
- * module opens the database when it loads.
+ * End-to-end migration on a real (in-memory) IndexedDB: seed the v5 shared
+ * database the app shipped before layers, then let the storage code copy it
+ * into the guest's own database and migrate it to layers there. Nothing may
+ * be lost, the old database stays exactly as it was (a backup), and loading
+ * twice must not duplicate.
  */
 import 'fake-indexeddb/auto'
 import { beforeAll, describe, expect, it } from 'vitest'
@@ -58,8 +58,8 @@ async function seedV5() {
   db.close()
 }
 
-async function rawDump() {
-  const db = await req(indexedDB.open('carmanah-maps'))
+async function rawDump(name = 'carmanah-maps.guest') {
+  const db = await req(indexedDB.open(name))
   const all = <T,>(store: string) => req(db.transaction(store).objectStore(store).getAll()) as Promise<T[]>
   const dump = {
     version: db.version,
@@ -105,16 +105,32 @@ describe('migrating a v5 database', () => {
     expect(layerNamed('Fire perimeter')!.source?.url).toBe('https://example.invalid/perim.kmz')
   })
 
-  it('stores it all as v6, keeps the overlay as a backup and the photo linked', async () => {
+  it("stores it all in the guest's database, keeps the overlay as a backup and the photo linked", async () => {
     const raw = await rawDump()
-    expect(raw.version).toBe(6)
-    expect(raw.stores).toEqual(expect.arrayContaining(['layers', 'icons']))
+    expect(raw.stores).toEqual(expect.arrayContaining(['layers', 'icons', 'features', 'photos', 'overlays']))
     expect(raw.features).toHaveLength(OLD_FEATURES.length + 2)
     expect(raw.features.every((f) => f.layerId && !('layer' in f))).toBe(true)
     expect(raw.layers).toHaveLength(5)
     expect(raw.overlays).toHaveLength(1)
     expect(raw.photos.map((p) => p.featureId)).toEqual(['f-dt'])
     expect(raw.flag).toBe(true)
+  })
+
+  it('leaves the old shared database exactly as it was, apart from the copied mark', async () => {
+    const db = await req(indexedDB.open('carmanah-maps'))
+    const all = <T,>(store: string) => req(db.transaction(store).objectStore(store).getAll()) as Promise<T[]>
+    expect(db.version).toBe(5)
+    expect([...db.objectStoreNames].sort()).toEqual(['features', 'kv', 'overlays', 'photos', 'rasters'])
+    const byId = (a: { id: string }, b: { id: string }) => a.id.localeCompare(b.id)
+    expect((await all<{ id: string }>('features')).sort(byId)).toEqual([...OLD_FEATURES].sort(byId))
+    expect(await all('overlays')).toHaveLength(1)
+    expect(await all('photos')).toHaveLength(1)
+    const kv = db.transaction('kv').objectStore('kv')
+    expect(await req(kv.getAllKeys())).toEqual(['migrated:owner-v1'])
+    const mark = (await req(kv.get('migrated:owner-v1'))) as { to: string; keys: Record<string, string[]> }
+    expect(mark.to).toBe('guest')
+    expect(mark.keys.features.sort()).toEqual(OLD_FEATURES.map((f) => f.id).sort())
+    db.close()
   })
 
   it('does nothing the second time', async () => {

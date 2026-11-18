@@ -152,7 +152,7 @@ it at sign-out. The page only ever reads it
 
 | Field | Read? | Rule |
 |---|---|---|
-| `ownerId` | Yes | Letters, digits, `-`, `_`, 1–64 characters. Names the person's storage (`carmanah-maps.<ownerId>`, `maps/<ownerId>/`). Anything else, or no hand-off, means `guest`. |
+| `ownerId` | Yes | Letters, digits, `-`, `_`, 1–64 characters, not starting with `_`. Names the person's storage (`carmanah-maps.<ownerId>`, `maps/<ownerId>/`). Anything else, or no hand-off, means `guest`. |
 | `fireNumber` | Yes | Text, trimmed, at most 40 characters. `fire_number` and `fire` are also accepted. |
 | `callSign` | Yes | Text, trimmed, at most 40 characters. `call_sign` and `callsign` are also accepted. |
 | `name`, `crew`, `asOf`, anything else | No | Ignored. Never put sign-in tokens here. |
@@ -167,10 +167,27 @@ Where the page uses them:
 - Fire number alone: the default maps-library folder.
 - Settings shows the call sign and fire number it received.
 
-Both win over the phone's own profile fields: crews share phones, and the
-profile belongs to the phone, not to whoever is signed in. If the hand-off
-changes while the page is open (someone signs out or in), the page reloads
-as the new owner.
+Both win over the call sign and fire number typed into the page's own
+profile, field by field: the hand-off is what the crew app knows about the
+person signed in right now. That profile is per person too.
+
+If the hand-off changes while the page is open (someone signs out or in),
+the page reloads as the new owner.
+
+### Removing a person from the phone
+
+For the crew app's account-removal step, call `deleteOwnerData(ownerId)`
+from `src/lib/storage/delete-owner.ts`. It removes:
+
+- the person's files, `maps/<ownerId>/` in Filesystem `LibraryNoCloud`;
+- their settings, the localStorage keys starting with
+  `carmanah-maps.<ownerId>.`;
+- their database, IndexedDB `carmanah-maps.<ownerId>`.
+
+It never touches the shared basemap packs in `maps/_packs/` or anyone else's
+data. If you'd rather not load our code, the same three steps by hand are in
+[owner-data.md](owner-data.md#removing-a-person-deleteownerdataownerid),
+along with what the call guarantees.
 
 ## 6. Native plugins
 
@@ -179,9 +196,17 @@ Capacitor package in its main bundle.
 
 | Plugin | Calls | Version |
 |---|---|---|
-| @capacitor/core (as `/capacitor.js`) | `isNativePlatform`, `isPluginAvailable`, `registerPlugin` | 8.x; tested with 8.6.0 |
-| @capacitor/filesystem | `writeFile`, `appendFile`, `rmdir` (Cache directory) | **≥ 8.1.0**: the coming native tile store reads by offset (`docs/native-storage-spike.md`). Tested with 8.1.5. |
+| @capacitor/core (as `/capacitor.js`) | `isNativePlatform`, `convertFileSrc`, `registerPlugin` | 8.x; tested with 8.6.0 |
+| @capacitor/filesystem | Sharing: `writeFile`, `appendFile`, `rmdir` in `Cache`. Personal files: `writeFile`, `appendFile`, `readFile` with `offset`/`length`, `stat`, `deleteFile`, `rmdir`, `rename`, `getUri` in `LibraryNoCloud` under `maps/<ownerId>/` ([owner-data.md](owner-data.md#native-file-store)) | **≥ 8.1.0**, for `readFile` by offset. Tested with 8.1.5. |
 | @capacitor/share | `share({ title, files: [uri] })` | Tested with 8.0.3 |
+
+All plugin lookups go through `src/lib/storage/capacitor.ts`. It tries a
+plugin already in `Capacitor.Plugins`, then `registerPlugin`, then the native
+bridge alone.
+
+In the store app, the person's imported maps and other files go to native
+Filesystem storage (`Library/NoCloud/maps/<ownerId>/` on iOS). Their pins,
+lines, tracks and layers go to IndexedDB `carmanah-maps.<ownerId>`.
 
 **How a share works in the store app** (`shareNatively` in
 `src/lib/export.ts`). It's used for KMZ, KML, GPX and CSV exports, layer
@@ -218,11 +243,13 @@ so a copy left by a closed page doesn't wait for the next person.
 6. @capacitor/filesystem stays ≥ 8.1.0, and @capacitor/share stays in the
    app.
 7. Cache `shared/` is cleared at sign-out and at app start.
-8. If the maps page ever gets a Content-Security-Policy, it must allow
+8. Account removal calls `deleteOwnerData(ownerId)`, or does its three steps
+   by hand (§5).
+9. If the maps page ever gets a Content-Security-Policy, it must allow
    `script-src 'self'` (the page has no inline scripts), `worker-src blob:`,
    `img-src 'self' data: blob:`, and `connect-src` to the app's own scheme
    plus the map, terrain and fire-data hosts.
-9. Every maps release is a crew release with a new `CACHE_NAME`.
+10. Every maps release is a crew release with a new `CACHE_NAME`.
 
 ## 8. Known limits in this build
 
@@ -232,10 +259,9 @@ so a copy left by a closed page doesn't wait for the next person.
   offline", rather than offering areas it would never show offline.
 
   Labels and map icons are bundled, so they work offline from the first
-  launch. So should the person's own pins, lines, tracks, layers and imported
-  maps, which the page keeps in its own storage, but that hasn't been tested
-  offline in the store app yet. Offline basemaps come with native packs (plan
-  Phase 0.3/0.4). Those need to land before crews rely on the map page
+  launch. The person's own data and imported maps are kept on the phone (§6),
+  so they don't need signal either. Offline basemaps come with native packs
+  (plan Phase 0.3/0.4). Those need to land before crews rely on the map page
   offline.
 - Android hasn't been run. There's no Android SDK on the build Mac.
 

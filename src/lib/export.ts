@@ -12,6 +12,9 @@
  * - GPX: placemarks as waypoints, lines/tracks (with times) and areas as tracks.
  * - CSV: placemarks only, one column per attribute.
  *
+ * A track that was paused keeps its gaps: gx:MultiTrack (one gx:Track per
+ * segment, no interpolation) in KML, one <trkseg> per segment in GPX.
+ *
  * Plain KML 2.2 in XSD element order; the only extensions are gx:Track and
  * namespaced elements inside Document <ExtendedData> (allowed by KML 2.2).
  * Format notes and assumptions: docs/avenza-layers.md.
@@ -23,6 +26,8 @@ import { KML_TYPE, layerTree, type AttrField, type Layer } from './layers'
 import { AVENZA_NS, CARMANAH_NS, GX_NS, KML_NS, NOTES_FIELD, PHOTOS_FIELD } from './kml'
 import { dotPng, symbolLabel } from './symbols'
 import { toCsv } from './csv'
+import { bytesToBase64, filesystemPlugin, nativeCapacitor, sharePlugin } from './storage/capacitor'
+import { splitSegments } from './track'
 
 export type ExportFormat = 'kmz' | 'kml' | 'gpx' | 'csv'
 
@@ -257,13 +262,21 @@ export function featuresToKml(input: ExportInput, opts: ExportOptions, assets: K
       geom = `<Point><coordinates>${coordStr(f.coordinates as Position)}</coordinates></Point>`
     } else if (f.kind === 'line' && isTrack(f) && !opts.tracksAsLines) {
       const pts = f.coordinates as Position[]
-      geom =
+      const track = (seg: number[]) =>
         `<gx:Track>` +
-        f.times!.map((t) => `<when>${iso(t)}</when>`).join('') +
-        pts.map((p) => `<gx:coord>${num(p[0])} ${num(p[1])} ${num(p[2] ?? 0)}</gx:coord>`).join('') +
+        seg.map((i) => `<when>${iso(f.times![i])}</when>`).join('') +
+        seg.map((i) => `<gx:coord>${num(pts[i][0])} ${num(pts[i][1])} ${num(pts[i][2] ?? 0)}</gx:coord>`).join('') +
         `</gx:Track>`
+      const segs = splitSegments(pts.map((_, i) => i), f.segmentStarts)
+      geom =
+        segs.length > 1
+          ? `<gx:MultiTrack><gx:interpolate>0</gx:interpolate>${segs.map(track).join('')}</gx:MultiTrack>`
+          : track(segs[0])
     } else if (f.kind === 'line') {
-      geom = `<LineString><tessellate>1</tessellate><coordinates>${(f.coordinates as Position[]).map(coordStr).join(' ')}</coordinates></LineString>`
+      const line = (c: Position[]) =>
+        `<LineString><tessellate>1</tessellate><coordinates>${c.map(coordStr).join(' ')}</coordinates></LineString>`
+      const segs = splitSegments(f.coordinates as Position[], f.segmentStarts)
+      geom = segs.length > 1 ? `<MultiGeometry>${segs.map(line).join('')}</MultiGeometry>` : line(segs[0])
     } else {
       const ring = (r: Position[]) =>
         `<LinearRing><coordinates>${[...r, r[0]].map(coordStr).join(' ')}</coordinates></LinearRing>`
@@ -403,10 +416,18 @@ export function featuresToGpx(input: ExportInput, opts: ExportOptions): string {
       const pts = f.coordinates as Position[]
       const ring = f.kind === 'area' ? [...pts, pts[0]] : pts
       const times = isTrack(f) && !opts.tracksAsLines ? f.times : undefined
-      const trkpts = ring.map((p, i) => `      ${pt('trkpt', p, times?.[i])}`).join('\n')
+      // A paused track: one <trkseg> per segment ("start a new Track Segment
+      // for each continuous span", GPX 1.1).
+      const segs = splitSegments(
+        ring.map((_, i) => i),
+        f.kind === 'line' ? f.segmentStarts : undefined,
+      )
+      const trksegs = segs
+        .map((seg) => `    <trkseg>\n${seg.map((i) => `      ${pt('trkpt', ring[i], times?.[i])}`).join('\n')}\n    </trkseg>`)
+        .join('\n')
       return (
         `  <trk><name>${esc(f.name)}</name>${f.notes ? `<desc>${esc(f.notes)}</desc>` : ''}\n` +
-        `    <trkseg>\n${trkpts}\n    </trkseg>\n  </trk>`
+        `${trksegs}\n  </trk>`
       )
     })
   return (
@@ -484,9 +505,10 @@ export async function buildExport(input: ExportInput, opts: ExportOptions): Prom
 // In the crew app's store build (rebuild plan §0) files go to the phone's own
 // share sheet through Capacitor's Filesystem and Share plugins, so AirDrop,
 // Quick Share and "Open in Avenza Maps" work there; Android's web view has no
-// Web Share at all. The plugins are reached through window.Capacitor (the
-// crew app loads its /capacitor.js before this page's scripts): there is no
-// Capacitor package in this app. Everywhere else, the Web Share API.
+// Web Share at all. The plugins are reached through window.Capacitor
+// (src/lib/storage/capacitor.ts; the crew app loads its /capacitor.js before
+// this page's scripts): there is no Capacitor package in this app.
+// Everywhere else, the Web Share API.
 
 /** Each share's copy lives in Cache `shared/maps-<id>/`, removed once the
  * share ends. The crew app clears Cache `shared/` as well when it starts and
@@ -498,45 +520,6 @@ const SHARE_COPY_KEEP_MS = 2 * 60 * 1000
 /** Bytes per bridge call. A multiple of 3, so each piece is whole base64;
  * pieces keep a large map original from becoming one huge string. */
 const SHARE_CHUNK = 3 * 1024 * 1024
-
-interface FilesystemPlugin {
-  writeFile(o: { path: string; data: string; directory: 'CACHE'; recursive?: boolean }): Promise<{ uri: string }>
-  appendFile(o: { path: string; data: string; directory: 'CACHE' }): Promise<void>
-  rmdir(o: { path: string; directory: 'CACHE'; recursive?: boolean }): Promise<void>
-}
-interface SharePlugin {
-  share(o: { title?: string; files?: string[] }): Promise<unknown>
-}
-interface CapacitorGlobal {
-  isNativePlatform?: () => boolean
-  isPluginAvailable?: (name: string) => boolean
-  registerPlugin?: (name: string) => unknown
-  Plugins?: Record<string, unknown>
-}
-
-/** A Capacitor plugin by name, in the store app only (null on the website, or
- * when the app doesn't include it). Same lookup as the crew app's own. */
-function nativePlugin<T>(name: string): T | null {
-  const cap = (globalThis as { Capacitor?: CapacitorGlobal }).Capacitor
-  try {
-    if (!cap?.isNativePlatform?.()) return null
-    const known = cap.Plugins?.[name]
-    if (known) return known as T
-    if (cap.isPluginAvailable && !cap.isPluginAvailable(name)) return null
-    return (cap.registerPlugin?.(name) as T | undefined) ?? null
-  } catch {
-    return null
-  }
-}
-
-function blobBase64(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(String(reader.result ?? '').split(',')[1] ?? '')
-    reader.onerror = () => reject(reader.error ?? new Error('Couldn’t read the file'))
-    reader.readAsDataURL(blob)
-  })
-}
 
 function shareId(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(12))
@@ -561,8 +544,9 @@ const isCancel = (err: unknown) => {
  * couldn't be written or shared.
  */
 export async function shareNatively(file: File): Promise<'shared' | 'cancelled' | null> {
-  const filesystem = nativePlugin<FilesystemPlugin>('Filesystem')
-  const share = nativePlugin<SharePlugin>('Share')
+  const cap = nativeCapacitor()
+  const filesystem = cap && filesystemPlugin(cap)
+  const share = cap && sharePlugin(cap)
   if (!filesystem || !share) return null
 
   const folder = `${SHARE_DIR}/maps-${shareId()}`
@@ -572,7 +556,7 @@ export async function shareNatively(file: File): Promise<'shared' | 'cancelled' 
     let uri = ''
     let offset = 0
     do {
-      const data = await blobBase64(file.slice(offset, offset + SHARE_CHUNK))
+      const data = bytesToBase64(new Uint8Array(await file.slice(offset, offset + SHARE_CHUNK).arrayBuffer()))
       if (offset === 0) {
         uri = (await filesystem.writeFile({ path, data, directory: 'CACHE', recursive: true })).uri
       } else {

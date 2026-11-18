@@ -4,7 +4,7 @@ import { importGeoPdf, sharpenMap, type ImportProgress, type PagePickRequest } f
 import { forgetMapTiles, mapTileUrl, registerMapTileProtocol } from '../lib/library/tile-protocol'
 import type { GeoPdfRegion } from '../lib/geopdf'
 import type { Corners, LibraryMap } from '../lib/library/types'
-import { readMapsContext, reloadOnOwnerChange } from '../lib/storage/owner'
+import { pageOwnerId, readMapsContext } from '../lib/storage/owner'
 import { getProfile } from '../lib/naming'
 
 /** What the map view needs to draw one library map. */
@@ -33,7 +33,8 @@ type Notify = (message: string, isError?: boolean) => void
 
 /** The Maps library, for the person signed in (or `guest`). */
 export function useMapsLibrary(notify: Notify) {
-  const [context] = useState(readMapsContext)
+  // The same owner as every other store on this page (it reloads if that changes).
+  const [context] = useState(() => ({ ...readMapsContext(), ownerId: pageOwnerId() }))
   const [library, setLibrary] = useState<MapsLibrary | null>(null)
   const [maps, setMaps] = useState<LibraryMap[]>([])
   const [pendingPick, setPendingPick] = useState<PendingPick | null>(null)
@@ -44,8 +45,6 @@ export function useMapsLibrary(notify: Notify) {
   const loadingUrls = useRef(new Set<string>())
   const notifyRef = useRef(notify)
   notifyRef.current = notify
-
-  useEffect(() => reloadOnOwnerChange(context.ownerId), [context.ownerId])
 
   // Tiles are read straight from this person's file store.
   const mapsRef = useRef(maps)

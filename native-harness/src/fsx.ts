@@ -143,7 +143,7 @@ export function fmtBytes(n: number): string {
 // args.mapsContext stands in for the crew app's hand-off: an object is
 // written to carmanah.mapsContext.v1 (same origin as the maps page), null
 // removes it.
-export interface Command { page: 'index' | 'tools' | 'maps'; action: string; args?: Record<string, unknown> }
+export interface Command { page: 'index' | 'tools' | 'storage' | 'maps'; action: string; args?: Record<string, unknown> }
 
 export async function takeCommand(page: Command['page']): Promise<Command | null> {
   const p = `${HARNESS}/command.json`
@@ -160,7 +160,7 @@ export async function takeCommand(page: Command['page']): Promise<Command | null
     return null
   }
   if (cmd.page !== page) {
-    location.href = cmd.page === 'tools' ? './tools.html' : './index.html'
+    location.href = `./${cmd.page}.html`
     return null
   }
   await remove(p)

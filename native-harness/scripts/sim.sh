@@ -9,7 +9,7 @@
 # script copies them to .scratch/results/.
 set -euo pipefail
 UDID="$1"; CMD="$2"; TIMEOUT="${3:-600}"
-BUNDLE=com.carmanahwildfire.mapsharness
+BUNDLE="${BUNDLE:-com.carmanahwildfire.mapsharness}"
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 DATA="$(xcrun simctl get_app_container "$UDID" "$BUNDLE" data)"
 H="$DATA/Library/NoCloud/maps/_harness"

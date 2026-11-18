@@ -15,7 +15,7 @@ interface Call {
   options: Record<string, unknown>
 }
 
-function fakeCapacitor(opts: { shareError?: Error; native?: boolean } = {}) {
+function fakeCapacitor(opts: { shareError?: Error; native?: boolean; bridgeOnly?: boolean } = {}) {
   const calls: Call[] = []
   const files = new Map<string, string>()
   const record = (method: string) => async (options: Record<string, unknown>) => {
@@ -33,15 +33,25 @@ function fakeCapacitor(opts: { shareError?: Error; native?: boolean } = {}) {
   }
   const Share = { share: record('share') }
   const registered: string[] = []
+  const plugins: Record<string, Record<string, (o: Record<string, unknown>) => Promise<unknown>>> = { Filesystem, Share }
   ;(globalThis as Record<string, unknown>).Capacitor = {
     isNativePlatform: () => opts.native ?? true,
-    isPluginAvailable: (name: string) => name === 'Filesystem' || name === 'Share',
+    convertFileSrc: (uri: string) => uri,
+    PluginHeaders: [{ name: 'Filesystem' }, { name: 'Share' }],
     // The crew app's /capacitor.js registers nothing: plugins come from registerPlugin.
     Plugins: {},
-    registerPlugin: (name: string) => {
-      registered.push(name)
-      return name === 'Filesystem' ? Filesystem : Share
-    },
+    ...(opts.bridgeOnly
+      ? {
+          // No /capacitor.js: only the native bridge's call.
+          nativePromise: (plugin: string, method: string, options: Record<string, unknown>) =>
+            plugins[plugin][method](options),
+        }
+      : {
+          registerPlugin: (name: string) => {
+            registered.push(name)
+            return plugins[name]
+          },
+        }),
   }
   return { calls, files, registered }
 }
@@ -112,6 +122,13 @@ describe('shareNatively', () => {
     expect(stored.length).toBe(size)
     expect(stored.charCodeAt(size - 1)).toBe(bytes[size - 1])
     expect(stored.charCodeAt(3 * 1024 * 1024)).toBe(bytes[3 * 1024 * 1024])
+  })
+
+  it('works through the native bridge alone, without /capacitor.js', async () => {
+    const { calls } = fakeCapacitor({ bridgeOnly: true, shareError: new Error('Share canceled') })
+    expect(await shareNatively(new File(['x'], 'a.kmz'))).toBe('cancelled')
+    await Promise.resolve()
+    expect(calls.map((c) => c.method)).toEqual(['writeFile', 'share', 'rmdir'])
   })
 
   it('makes a name the phone’s file system takes', async () => {

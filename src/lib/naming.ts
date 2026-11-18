@@ -3,7 +3,7 @@
  * e.g. "Edge_JUL11_K61067_2P14". GIS-safe per BCWS GIS guidance:
  * no spaces, no punctuation, underscores between words.
  */
-
+import { adoptLegacyPref, readOwnerPref, readStoredKey, writeOwnerPref } from './storage/prefs'
 import { readMapsContext } from './storage/owner'
 
 export interface Profile {
@@ -11,27 +11,43 @@ export interface Profile {
   fireNumber: string
 }
 
-const KEY = 'carmanah-profile'
+/** Per person (plan §0, shared phones): `carmanah-maps.<ownerId>.profile`. */
+const PREF = 'profile'
+/** Before owners: one profile for everyone on the website (the guest adopts it). */
+const SHARED_KEY = 'carmanah-profile'
 
-export function getProfile(): Profile {
+function parseProfile(raw: string | null): Profile | null {
   try {
-    const raw = localStorage.getItem(KEY)
     if (raw) return { callsign: '', fireNumber: '', ...JSON.parse(raw) }
   } catch {
-    // fall through to empty profile
+    // fall through
+  }
+  return null
+}
+
+export function getProfile(): Profile {
+  const own = parseProfile(readOwnerPref(PREF))
+  if (own) return own
+  if (adoptLegacyPref(PREF)) {
+    const raw = readStoredKey(SHARED_KEY)
+    const legacy = parseProfile(raw)
+    if (legacy && raw) {
+      writeOwnerPref(PREF, raw)
+      return legacy
+    }
   }
   return { callsign: '', fireNumber: '' }
 }
 
 export function saveProfile(profile: Profile): void {
-  localStorage.setItem(KEY, JSON.stringify(profile))
+  writeOwnerPref(PREF, JSON.stringify(profile))
 }
 
 /**
  * Call sign and fire number to name things with. The crew app's hand-off
- * (carmanah.mapsContext.v1, rebuild plan §0) wins field by field over this
- * phone's profile: crews share phones, and the profile belongs to the phone,
- * not to whoever is signed in.
+ * (carmanah.mapsContext.v1, rebuild plan §0) wins field by field over the
+ * profile typed in on this page: it's what the crew app knows about the
+ * person signed in right now. The profile fills in what the hand-off lacks.
  */
 export function namingProfile(): Profile {
   const p = getProfile()
