@@ -151,10 +151,10 @@ it, so their files never seem to vanish. Following
 - **Never a fetch without Range.** `read()` of a whole file (sharing an
   original) is range requests of 1 MB each. The iOS handler reads on the main
   thread, so each request stays small.
-- **Writes** go to `<file>.part` with `writeFile` and then `appendFile`, in
-  4 MB base64 chunks. The size is checked, then the `.part` file is renamed
-  over the old file. A failed write leaves the previous file (or none), never
-  half of one.
+- **Writes** go to `<file>.writing` with `writeFile` and then `appendFile`,
+  in 4 MB base64 chunks. The size is checked, then that file is renamed over
+  the old one. A failed write leaves the previous file (or none), never half
+  of one. (`.part` is kept for resumable pack downloads, [fire-packs.md](fire-packs.md).)
 - `downloadFile` isn't used, so its LibraryNoCloud bug (spike §4.1) doesn't
   apply. Pack downloads (Phase 0.4) should use Range chunks + `appendFile`, or
   the `Directory.Library` + `NoCloud/…` workaround.

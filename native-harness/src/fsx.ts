@@ -142,7 +142,7 @@ export function fmtBytes(n: number): string {
 // That page doesn't read commands, so it's marked done before going there.
 // args.mapsContext stands in for the crew app's hand-off: an object is
 // written to carmanah.mapsContext.v1 (same origin as the maps page), null
-// removes it.
+// removes it. args.localStorage sets other keys (same origin too).
 export interface Command { page: 'index' | 'tools' | 'storage' | 'maps'; action: string; args?: Record<string, unknown> }
 
 export async function takeCommand(page: Command['page']): Promise<Command | null> {
@@ -155,8 +155,11 @@ export async function takeCommand(page: Command['page']): Promise<Command | null
     const handOff = cmd.args?.mapsContext
     if (handOff === null) localStorage.removeItem('carmanah.mapsContext.v1')
     else if (handOff !== undefined) localStorage.setItem('carmanah.mapsContext.v1', JSON.stringify(handOff))
+    // args.localStorage: other keys to set first, e.g. {"carmanah-live-enabled":"1"} for live fires.
+    for (const [k, v] of Object.entries((cmd.args?.localStorage ?? {}) as Record<string, string>)) localStorage.setItem(k, v)
     await saveResult('done', { opened: 'maps' })
-    location.href = './maps/index.html'
+    // args.offline: the CSP-locked copy (maps/offline.html) that can't reach any http(s) host.
+    location.href = cmd.args?.offline ? './maps/offline.html' : './maps/index.html'
     return null
   }
   if (cmd.page !== page) {

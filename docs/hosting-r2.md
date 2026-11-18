@@ -381,9 +381,11 @@ wrong.
 ## 8. Pointing the app at the bucket
 
 The map page reads `catalog.json` from one base URL, set when the app is
-built: `VITE_PACKS_URL` (the next PRs add it), e.g.
-`VITE_PACKS_URL=https://pub-XXXX.r2.dev/ npm run build:embedded`. The
-default is the production custom domain once it exists.
+built: `VITE_PACKS_URL`, e.g.
+`VITE_PACKS_URL=https://pub-XXXX.r2.dev/ npm run build:embedded`. Unset,
+the app saves small areas only, straight from OpenFreeMap
+([fire-packs.md §5](fire-packs.md#5-in-the-app)). For the website build, set
+it as a repository variable in the deploy workflow once the bucket is live.
 
 For local testing without R2, `npm run packs:serve` serves a folder laid out
 like the bucket (default `samples/bucket/`, which git ignores) on

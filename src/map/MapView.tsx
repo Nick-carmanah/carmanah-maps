@@ -34,7 +34,8 @@ import { nativeCapacitor } from '../lib/storage/capacitor'
 import { EMBEDDED } from '../lib/embedded'
 import { packTransformRequest, registerPackProtocol } from '../lib/packs/protocol'
 import { packDownloads, type SmallSources } from '../lib/packs/manager'
-import OfflineMapsSheet, { formatMB } from '../components/OfflineMapsSheet'
+import OfflineMapsSheet from '../components/OfflineMapsSheet'
+import { formatMB } from '../lib/packs/format'
 import { satelliteSignal } from '../lib/satellite-signal'
 
 /** Where a small area comes from when there's no hosted pack for it. */

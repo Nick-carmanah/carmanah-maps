@@ -236,6 +236,11 @@ Each phase ships on its own. Sizes are rough relative effort.
    the perimeter plus a buffer. Packs are hosted by us as region files, since
    the free tile server caps a download at 3,000 tiles and a large fire needs
    6,000–15,000 (about 0.2–0.6 GB).
+   Done: the phone cuts any perimeter out of hosted BC-wide PMTiles
+   (measured: 1M ha ≈ 30 MB, ~7,700 tiles), resumably, into
+   `maps/_packs/`. See [fire-packs.md](fire-packs.md) and
+   [hosting-r2.md](hosting-r2.md); the bucket (Cloudflare R2) is Nick's
+   to create.
 5. **Maps library** (M). Imported PDFs kept as originals and organised per
    fire, rendered sharp at every zoom (tiled at import), and re-shareable.
 6. **Send to Avenza** (M). A georeferenced PDF of any area, plus KMZ layers,

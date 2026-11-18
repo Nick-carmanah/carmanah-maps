@@ -441,7 +441,9 @@ class NativeFileStore implements FileStore {
     const target = this.full(path)
     // Written beside the old file, then swapped in: a crash or a full disk
     // mid-write leaves the previous file (or none), never half of one.
-    const temp = `${target}.part`
+    // `.writing`, not `.part`: `.part` is a resumable pack download's
+    // partial file (src/lib/packs/download.ts), which this must never touch.
+    const temp = `${target}.writing`
     this.forget(path)
     let size = 0
     try {

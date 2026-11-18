@@ -81,6 +81,11 @@ export class PackRegistry {
       this.loading = this.read().catch((err) => {
         console.warn('Offline packs unavailable:', err)
         this.files = null
+        this.packs = []
+        this.jobs = []
+        // Known to be empty: the map stops sending tiles through the pack protocol.
+        this.loadedOnce = true
+        this.notify()
       })
     }
     return this.loading

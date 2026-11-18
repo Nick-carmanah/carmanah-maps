@@ -361,3 +361,58 @@ describe('pack.json from the phone', () => {
     expect(m.madeBy).toBe('app')
   })
 })
+
+describe('small areas straight from OpenFreeMap', () => {
+  it('fetches the tiles 4 at a time and writes one pack, within the 3,000-tile limit', async () => {
+    const t = await setup()
+    const seen = { inFlight: 0, max: 0, ofm: 0, aws: 0 }
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url === 'https://tiles.openfreemap.org/planet') return Response.json({ tiles: ['https://tiles.openfreemap.org/planet/20261115_080022_pt/{z}/{x}/{y}.pbf'] })
+      seen.inFlight++
+      seen.max = Math.max(seen.max, seen.inFlight)
+      await new Promise((r) => setTimeout(r, 1))
+      seen.inFlight--
+      if (url.includes('openfreemap')) {
+        seen.ofm++
+        return new Response(new Uint8Array([0x1a, 0x02, 0x78, 0x01]))
+      }
+      seen.aws++
+      return new Response(new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]))
+    })
+    const small: PackArea = { rings: [bboxRing([-121.62, 50.215, -121.55, 50.26])], bufferM: 0 }
+    const manifest = await t.download.downloadSmallArea(
+      { id: 'view-20261118', name: 'Map view', area: small },
+      {
+        store: t.store,
+        signal: new AbortController().signal,
+        tileJsonUrl: 'https://tiles.openfreemap.org/planet',
+        terrainUrl: (z, x, y) => `https://s3.amazonaws.com/elevation-tiles-prod/terrarium/${z}/${x}/${y}.png`,
+        deps: { fetch: fetchImpl as unknown as typeof fetch, wait: async () => {} },
+      },
+    )
+    const plan = t.download.planSmall(small)
+    expect(seen.ofm).toBe(plan.basemap.length)
+    expect(seen.aws).toBe(plan.terrain.length)
+    expect(seen.max).toBeLessThanOrEqual(4)
+    expect(manifest.files.map((f) => f.tiles)).toEqual([plan.basemap.length, plan.terrain.length])
+    expect(manifest.files[0].build).toBe('20261115_080022_pt')
+    for (const f of manifest.files) {
+      const bytes = t.cap.file(`maps/_packs/view-20261118/${f.name}`)!
+      expect(createHash('sha256').update(bytes).digest('hex')).toBe(f.sha256)
+    }
+    await t.registry.refresh()
+    const [z, x, y] = [plan.basemap[0].z, plan.basemap[0].x, plan.basemap[0].y]
+    expect(new Uint8Array((await t.registry.tile('basemap', z, x, y))!)).toEqual(new Uint8Array([0x1a, 0x02, 0x78, 0x01]))
+  })
+
+  it('refuses an area over 3,000 basemap tiles', async () => {
+    const t = await setup()
+    const big: PackArea = { rings: [bboxRing([-122, 50, -121, 51])], bufferM: 0 }
+    await expect(
+      t.download.downloadSmallArea({ id: 'big-1', name: 'Big', area: big }, {
+        store: t.store, signal: new AbortController().signal, tileJsonUrl: 'x', terrainUrl: () => 'y', deps: t.deps,
+      }),
+    ).rejects.toThrow(/limit is 3000/)
+  })
+})

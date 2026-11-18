@@ -9,6 +9,7 @@ import { loadCatalog, resolveUrl, sourceFor, PACKS_URL, type LoadedCatalog } fro
 import { OFM_MAX_TILES, planCut, planSmall, planWhole, type PlannedDownload } from '../lib/packs/download'
 import { packDownloads, type SmallSources } from '../lib/packs/manager'
 import { packRegistry } from '../lib/packs/registry'
+import { formatMB } from '../lib/packs/format'
 import { formatArea } from '../lib/units'
 
 /**
@@ -38,7 +39,6 @@ type Check =
 
 const BUFFERS = [0, 2, 5, 10]
 
-export const formatMB = (bytes: number) => (bytes < 1e6 ? `${Math.max(0.1, bytes / 1e6).toFixed(1)} MB` : `${(bytes / 1e6).toFixed(bytes < 1e8 ? 1 : 0)} MB`)
 const formatDate = (iso: string) => {
   const d = new Date(iso)
   return Number.isNaN(d.getTime()) ? '' : d.toLocaleDateString('en-CA', { day: 'numeric', month: 'short', year: 'numeric' })
@@ -226,7 +226,10 @@ export default function OfflineMapsSheet({ map, liveFires, userFeatures, native,
       .filter((a) => !packRegistry.jobs.some((j) => j.id === a.id) && !packRegistry.packs.some((p) => p.id === a.id))
       .map((a) => ({ id: a.id, name: a.name, done: false as const, bytes: a.progress.total, created: '', bbox: null, job: null })),
   ]
-  const totalBytes = rows.reduce((s, r) => s + (r.done ? r.bytes : (packRegistry.sizes.get(r.id) ?? 0)), 0)
+  const totalBytes = rows.reduce(
+    (s, r) => s + (r.done ? r.bytes : (packDownloads.active.get(r.id)?.progress.done ?? packRegistry.sizes.get(r.id) ?? 0)),
+    0,
+  )
   const fire = fires.find((f) => f.fireNumber === fireNumber)
   const readyPacks = catalog && catalog !== 'error' ? catalog.catalog.packs : []
 
@@ -252,7 +255,7 @@ export default function OfflineMapsSheet({ map, liveFires, userFeatures, native,
             <h3>
               Saved here <span className="muted">{formatMB(totalBytes)}</span>
             </h3>
-            <ul className="pack-list">
+            <ul className="pack-list saved">
               {rows.map((r) => {
                 const active = packDownloads.active.get(r.id)
                 const pct = active && active.progress.total ? Math.floor((100 * active.progress.done) / active.progress.total) : 0
@@ -383,7 +386,7 @@ export default function OfflineMapsSheet({ map, liveFires, userFeatures, native,
         {readyPacks.length > 0 && (
           <section>
             <h3>Ready-made</h3>
-            <ul className="pack-list">
+            <ul className="pack-list ready">
               {readyPacks.map((p) => (
                 <li key={p.id} className="pack-row">
                   <div className="pack-main">

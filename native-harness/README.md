@@ -39,6 +39,15 @@ crew app's hand-off (`null` removes it):
 scripts/sim.sh <udid> '{"page":"maps","action":"open","args":{"mapsContext":{"ownerId":"u123","fireNumber":"K61067","callSign":"2P14"}}}' 60
 ```
 
+`"args":{"localStorage":{…}}` sets other keys first (e.g.
+`"carmanah-live-enabled":"1"`), and `"offline":true` opens `maps/offline.html`:
+the same page under a Content-Security-Policy that allows no http(s) at all,
+to prove what it draws comes from the phone. `scripts/maps-driver.js` (harness
+copy only) can drive the page from a `harness.drive` key: Offline maps → a
+fire → Check size → Download, or fly over an area and report what was drawn
+(`maps/_harness/results/<step>.json`). The fire-packs check (2026-11-18) used
+it with the bundle id `com.carmanahwildfire.mapsharness.packs`.
+
 Share copies land in the app's `Library/Caches/shared/maps-<id>/`. Results of
 the 2026-11-18 run: [`docs/crew-app-handoff.md`](../docs/crew-app-handoff.md) §10.
 
