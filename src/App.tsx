@@ -3,6 +3,7 @@ import MapView from './map/MapView'
 import LayerPanel from './components/LayerPanel'
 import QrScanner from './components/QrScanner'
 import FeatureSheet, { type PhotoThumb } from './components/FeatureSheet'
+import UnitsSettings from './components/UnitsSettings'
 import {
   featuresToCsv,
   featuresToGpx,
@@ -15,16 +16,16 @@ import type { ExportFormat } from './components/LayerPanel'
 import { fetchKmlFromUrl, parseImportedFile, type ParsedKml } from './lib/kml'
 import { parseGeoPdfRegions, renderGeoPdfRegion } from './lib/geopdf'
 import { fetchLiveFires, type LiveFires } from './lib/livefires'
+import { pathLengthMeters, ringAreaSqMeters } from './lib/measure'
 import {
+  formatAltitude,
   formatArea,
+  formatBearing,
   formatDistance,
+  formatPace,
   formatSpeed,
-  getUnits,
-  pathLengthMeters,
-  ringAreaSqMeters,
-  setUnits,
-  type Units,
-} from './lib/measure'
+} from './lib/units'
+import { useUnitSettings } from './hooks/useUnitSettings'
 import { formatDuration, trackStats, useTrackRecorder } from './hooks/useTrackRecorder'
 import { conventionActive, buildConventionName, getProfile, saveProfile } from './lib/naming'
 import { navTargetPosition, useNavigation } from './hooks/useNavigation'
@@ -83,7 +84,8 @@ export default function App() {
   const [photos, setPhotos] = useState<PhotoThumb[]>([])
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [profile, setProfile] = useState(getProfile)
-  const [units, setUnitsState] = useState<Units>(getUnits)
+  // Every number on screen follows these; re-render when one changes.
+  useUnitSettings()
   const [hiddenLayers, setHiddenLayers] = useState<Set<string>>(new Set())
   const [gridOn, setGridOn] = useState(() => localStorage.getItem('carmanah-grid') === '1')
   const [toolsOpen, setToolsOpen] = useState(false)
@@ -362,11 +364,13 @@ export default function App() {
         return
       }
       const stats = trackStats(track.points)
+      // A snapshot in the units chosen at save time (notes are the crew's text).
       const notes = [
         formatDistance(stats.distanceM),
         formatDuration(stats.durationMs),
-        `avg ${formatSpeed(stats.avgSpeedKmh)}`,
-        stats.elevGainM != null ? `+${Math.round(stats.elevGainM)} m gain` : null,
+        `avg ${formatSpeed(stats.avgSpeedKmh / 3.6)}`,
+        formatPace(stats.durationMs, stats.distanceM),
+        stats.elevGainM != null ? `+${formatAltitude(stats.elevGainM)} gain` : null,
         as === 'area' ? formatArea(ringAreaSqMeters(positions)) : null,
       ]
         .filter(Boolean)
@@ -550,7 +554,6 @@ export default function App() {
           onDropPin={handleDropPin}
           onEditFeature={setEditingId}
           onNotify={showToast}
-          units={units}
           basemap={basemap}
           openSearchNonce={searchNonce}
         />
@@ -705,8 +708,11 @@ export default function App() {
               <span className="readout">
                 {track.phase === 'recording' && <span className="rec-dot" />}
                 {formatDistance(stats.distanceM)} · {formatDuration(stats.durationMs)}
-                {stats.avgSpeedKmh > 0 && ` · ${formatSpeed(stats.avgSpeedKmh)}`}
-                {stats.elevGainM != null && ` · +${Math.round(stats.elevGainM)} m`}
+                {stats.avgSpeedKmh > 0 && ` · ${formatSpeed(stats.avgSpeedKmh / 3.6)}`}
+                {track.phase === 'review' &&
+                  formatPace(stats.durationMs, stats.distanceM) &&
+                  ` · ${formatPace(stats.durationMs, stats.distanceM)}`}
+                {stats.elevGainM != null && ` · +${formatAltitude(stats.elevGainM)}`}
               </span>
               {track.phase === 'recording' && (
                 <button className="btn" onClick={track.stop}>
@@ -778,8 +784,9 @@ export default function App() {
             {nav.distanceM != null ? (
               <>
                 {' · '}
-                {formatDistance(nav.distanceM)} · {Math.round(nav.bearing ?? 0)}°T
+                {formatDistance(nav.distanceM)} · {formatBearing(nav.bearing ?? 0, nav.position)}
                 {nav.etaS != null && ` · ETA ${formatDuration(nav.etaS * 1000)}`}
+                {nav.speedMps != null && ` · ${formatSpeed(nav.speedMps)}`}
               </>
             ) : (
               ' · waiting for GPS…'
@@ -795,60 +802,44 @@ export default function App() {
         <div className="feature-sheet settings-sheet">
           <div className="sheet-header">
             <span className="kind-icon">⚙</span>
-            <span className="sheet-title">Profile</span>
+            <span className="sheet-title">Profile and settings</span>
             <button className="btn" onClick={() => setSettingsOpen(false)}>
               Done
             </button>
           </div>
-          <div className="settings-fields">
-            <label>
-              Callsign
-              <input
-                value={profile.callsign}
-                placeholder="e.g. 2P14"
-                onChange={(e) => {
-                  const next = { ...profile, callsign: e.target.value.trim() }
-                  setProfile(next)
-                  saveProfile(next)
-                }}
-              />
-            </label>
-            <label>
-              Fire number
-              <input
-                value={profile.fireNumber}
-                placeholder="e.g. K61067"
-                onChange={(e) => {
-                  const next = { ...profile, fireNumber: e.target.value.trim() }
-                  setProfile(next)
-                  saveProfile(next)
-                }}
-              />
-            </label>
-          </div>
-          <div className="settings-fields">
-            <label>
-              Units
-              <span className="units-toggle">
-                {(['metric', 'imperial'] as const).map((u) => (
-                  <button
-                    key={u}
-                    className={`btn small${units === u ? ' active' : ''}`}
-                    onClick={() => {
-                      setUnits(u)
-                      setUnitsState(u)
-                    }}
-                  >
-                    {u === 'metric' ? 'Metric (m · km · ha)' : 'Imperial (ft · mi · ac)'}
-                  </button>
-                ))}
-              </span>
-            </label>
-          </div>
-          <div className="settings-hint">
-            {conventionActive()
-              ? `New features will be auto-named like: ${buildConventionName('Edge')}`
-              : 'Set a callsign and/or fire number to auto-name features the BCWS way (What_When_Where_Who).'}
+          <div className="sheet-scroll">
+            <div className="settings-fields">
+              <label>
+                Callsign
+                <input
+                  value={profile.callsign}
+                  placeholder="e.g. 2P14"
+                  onChange={(e) => {
+                    const next = { ...profile, callsign: e.target.value.trim() }
+                    setProfile(next)
+                    saveProfile(next)
+                  }}
+                />
+              </label>
+              <label>
+                Fire number
+                <input
+                  value={profile.fireNumber}
+                  placeholder="e.g. K61067"
+                  onChange={(e) => {
+                    const next = { ...profile, fireNumber: e.target.value.trim() }
+                    setProfile(next)
+                    saveProfile(next)
+                  }}
+                />
+              </label>
+            </div>
+            <div className="settings-hint">
+              {conventionActive()
+                ? `New features will be auto-named like: ${buildConventionName('Edge')}`
+                : 'Set a callsign and/or fire number to auto-name features the BCWS way (What_When_Where_Who).'}
+            </div>
+            <UnitsSettings />
           </div>
         </div>
       )}

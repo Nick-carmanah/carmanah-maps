@@ -2,14 +2,17 @@ import { useEffect, useRef, useState } from 'react'
 import maplibregl, { Map as MlMap, Popup } from 'maplibre-gl'
 import type { FeatureCollection, Position } from 'geojson'
 import type { Overlay, RasterOverlay } from '../lib/store'
-import { boundsOf, boundsOfPositions } from '../lib/geo'
+import { bearingDeg, boundsOf, boundsOfPositions } from '../lib/geo'
+import { pathLengthMeters, ringAreaSqMeters } from '../lib/measure'
 import {
   formatArea,
+  formatBearing,
   formatDistance,
-  pathLengthMeters,
-  ringAreaSqMeters,
-  type Units,
-} from '../lib/measure'
+  getUnitSettings,
+  setUnitSettings,
+} from '../lib/units'
+import { useUnitSettings } from '../hooks/useUnitSettings'
+import { UnitScaleControl } from './scale'
 import { STATUS_COLORS, STATUS_FALLBACK_COLOR, type LiveFires } from '../lib/livefires'
 import {
   FIRE_SYMBOLS,
@@ -19,15 +22,9 @@ import {
   type UserFeature,
 } from '../lib/features'
 import { fenceShapes } from '../lib/fences'
-import { buildGrid } from '../lib/grid'
+import { buildGrid, gridSystemFor } from '../lib/grid'
 import { NWCG_SYMBOLS, nwcgIconUrl } from '../lib/nwcg'
-import {
-  COORD_FORMATS,
-  FORMAT_LABELS,
-  formatCoord,
-  parseCoordinate,
-  type CoordFormat,
-} from '../lib/coords'
+import { COORD_FORMATS, FORMAT_LABELS, formatCoord, parseCoordinate } from '../lib/coords'
 import {
   AVG_TILE_KB,
   downloadMapPack,
@@ -67,8 +64,6 @@ interface MapViewProps {
   onDropPin: (position: Position) => void
   onEditFeature: (id: string) => void
   onNotify: (message: string, isError?: boolean) => void
-  /** Measurement units — also re-renders measurement readouts on change. */
-  units: Units
   basemap: 'streets' | 'satellite'
   /** Bump to open the coordinate search input (from the tools sheet). */
   openSearchNonce: number
@@ -93,7 +88,6 @@ export default function MapView({
   onDropPin,
   onEditFeature,
   onNotify,
-  units,
   basemap,
   openSearchNonce,
 }: MapViewProps) {
@@ -112,14 +106,15 @@ export default function MapView({
   liveFiresRef.current = liveFires
   const showLivePerimetersRef = useRef(showLivePerimeters)
   showLivePerimetersRef.current = showLivePerimeters
-  const scaleRef = useRef<maplibregl.ScaleControl | null>(null)
-  const unitsRef = useRef<Units>(units)
-  unitsRef.current = units
+  const scaleRef = useRef<UnitScaleControl | null>(null)
+  // Unit settings (Tools → Profile and settings); readouts re-render on change.
+  const units = useUnitSettings()
+  const coordFmt = units.coords
 
   // Keep the scale bar in the chosen units.
   useEffect(() => {
-    scaleRef.current?.setUnit(units)
-  }, [units])
+    scaleRef.current?.setUnit(units.distance)
+  }, [units.distance])
   const userFeaturesRef = useRef<UserFeature[]>(userFeatures)
   userFeaturesRef.current = userFeatures
   const hiddenLayersRef = useRef(hiddenLayers)
@@ -155,11 +150,8 @@ export default function MapView({
     if (openSearchNonce > 0) setSearchOpen(true)
   }, [openSearchNonce])
 
-  // Coordinate readout & universal search
-  // DDM default — the BCWS field standard.
-  const [coordFmt, setCoordFmt] = useState<CoordFormat>(
-    () => (localStorage.getItem('carmanah-coord-fmt') as CoordFormat) || 'ddm',
-  )
+  // Coordinate readout & universal search. The format is the Coordinates
+  // unit setting (DDM default — the BCWS field standard).
   const [center, setCenter] = useState<Position>([-123.37, 48.43])
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchText, setSearchText] = useState('')
@@ -169,8 +161,7 @@ export default function MapView({
 
   const cycleFormat = () => {
     const next = COORD_FORMATS[(COORD_FORMATS.indexOf(coordFmt) + 1) % COORD_FORMATS.length]
-    setCoordFmt(next)
-    localStorage.setItem('carmanah-coord-fmt', next)
+    setUnitSettings({ coords: next })
   }
 
   const flyToResult = (pos: Position) => {
@@ -241,7 +232,10 @@ export default function MapView({
       }
     }
     if (!results.length) {
-      onNotify('No matches — try coordinates (DD, DMS, UTM, MGRS) or a feature name', true)
+      onNotify(
+        'No matches — try coordinates (DD, DDM, DMS, UTM, MGRS, BC Albers) or a feature name',
+        true,
+      )
       return
     }
     if (results.length === 1) {
@@ -329,7 +323,7 @@ export default function MapView({
       }),
       'top-right',
     )
-    const scale = new maplibregl.ScaleControl({ unit: unitsRef.current })
+    const scale = new UnitScaleControl(getUnitSettings().distance)
     scaleRef.current = scale
     map.addControl(scale, 'bottom-left')
 
@@ -523,12 +517,12 @@ export default function MapView({
     fences?.setData(fenceShapes(userFeatures.filter((f) => !hiddenLayers.has(featureLayer(f)))))
   }, [userFeatures, hiddenLayers])
 
-  // Grid toggle.
+  // Grid toggle, and UTM ↔ BC Albers grid with the coordinate setting.
   useEffect(() => {
     const map = mapRef.current
     if (!map || !loadedRef.current) return
     updateGrid(map, showGrid)
-  }, [showGrid])
+  }, [showGrid, coordFmt])
 
   // Push the in-progress GPS track to the map.
   useEffect(() => {
@@ -572,6 +566,11 @@ export default function MapView({
 
   const distanceM = pathLengthMeters(measurePoints)
   const areaM2 = ringAreaSqMeters(measurePoints)
+  // Two points: also the bearing from the first to the second.
+  const measureBearing =
+    measurePoints.length === 2
+      ? ` · ${formatBearing(bearingDeg(measurePoints[0], measurePoints[1]), measurePoints[0])}`
+      : ''
 
   return (
     <>
@@ -647,7 +646,7 @@ export default function MapView({
           <span className="readout">
             {measurePoints.length < 2
               ? 'Tap the map to measure'
-              : `${formatDistance(distanceM)}${measurePoints.length >= 3 ? ` · ${formatArea(areaM2)}` : ''}`}
+              : `${formatDistance(distanceM)}${measureBearing}${measurePoints.length >= 3 ? ` · ${formatArea(areaM2)}` : ''}`}
           </span>
           <button
             className="btn"
@@ -769,7 +768,8 @@ function liveFirePopupContent(props: Record<string, unknown>): {
   const sizeHa = props.CURRENT_SIZE ?? props.FIRE_SIZE_HECTARES
   const parts = [
     props.FIRE_STATUS && `Status: ${props.FIRE_STATUS}`,
-    sizeHa != null && `Size: ${sizeHa} ha`,
+    sizeHa != null &&
+      `Size: ${getUnitSettings().area === 'ha' ? `${sizeHa} ha` : formatArea(Number(sizeHa) * 10_000)}`,
     props.FIRE_CAUSE && `Cause: ${props.FIRE_CAUSE}`,
     props.GEOGRAPHIC_DESCRIPTION,
   ].filter(Boolean)
@@ -957,7 +957,7 @@ function updateGrid(map: MlMap, show: boolean) {
     labels.setData(EMPTY_FC)
     return
   }
-  const grid = buildGrid(map.getBounds(), map.getZoom())
+  const grid = buildGrid(map.getBounds(), map.getZoom(), gridSystemFor(getUnitSettings().coords))
   lines.setData(grid.lines)
   labels.setData(grid.labels)
 }

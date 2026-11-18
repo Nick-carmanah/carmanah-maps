@@ -1,16 +1,19 @@
 import * as mgrs from 'mgrs'
 import type { Position } from 'geojson'
+import { fromBcAlbers, inBcAlbersArea, toBcAlbers } from './albers'
 
-export type CoordFormat = 'dd' | 'ddm' | 'dms' | 'utm' | 'mgrs'
+export type CoordFormat = 'dd' | 'ddm' | 'dms' | 'utm' | 'mgrs' | 'bcalbers'
 
-export const COORD_FORMATS: CoordFormat[] = ['dd', 'ddm', 'dms', 'utm', 'mgrs']
+export const COORD_FORMATS: CoordFormat[] = ['dd', 'ddm', 'dms', 'utm', 'mgrs', 'bcalbers']
 
+/** Short labels, for the readout's format button. */
 export const FORMAT_LABELS: Record<CoordFormat, string> = {
   dd: 'DD',
   ddm: 'DDM',
   dms: 'DMS',
   utm: 'UTM',
   mgrs: 'MGRS',
+  bcalbers: 'ALBERS',
 }
 
 // ---- UTM (WGS84 Transverse Mercator, standard Snyder series) ----
@@ -137,19 +140,20 @@ export function fromUtm(utm: Utm): Position {
 /** Degree decimal minutes — the BCWS field standard. */
 function toDdm(value: number, isLat: boolean): string {
   const hemi = isLat ? (value >= 0 ? 'N' : 'S') : value >= 0 ? 'E' : 'W'
-  const abs = Math.abs(value)
-  const d = Math.floor(abs)
-  const min = (abs - d) * 60
+  // Round once, in thousandths of a minute, so 59.9996' carries to the degree.
+  const t = Math.round(Math.abs(value) * 60_000)
+  const d = Math.floor(t / 60_000)
+  const min = (t % 60_000) / 1000
   return `${d}°${min.toFixed(3).padStart(6, '0')}'${hemi}`
 }
 
 function toDms(value: number, isLat: boolean): string {
   const hemi = isLat ? (value >= 0 ? 'N' : 'S') : value >= 0 ? 'E' : 'W'
-  const abs = Math.abs(value)
-  const d = Math.floor(abs)
-  const mFloat = (abs - d) * 60
-  const min = Math.floor(mFloat)
-  const s = (mFloat - min) * 60
+  // Round once, in tenths of a second, so 59.96" carries to the minute.
+  const t = Math.round(Math.abs(value) * 36_000)
+  const d = Math.floor(t / 36_000)
+  const min = Math.floor((t % 36_000) / 600)
+  const s = (t % 600) / 10
   return `${d}°${String(min).padStart(2, '0')}'${s.toFixed(1).padStart(4, '0')}"${hemi}`
 }
 
@@ -173,65 +177,148 @@ export function formatCoord([lng, lat]: Position, fmt: CoordFormat): string {
       } catch {
         return 'outside MGRS'
       }
+    case 'bcalbers': {
+      const a = toBcAlbers(lat, lng)
+      return `${Math.round(a.easting)}E ${Math.round(a.northing)}N`
+    }
   }
 }
 
+
 // ---- Parsing (search input) ----
+//
+// "Find by coordinates" takes every format the app can show, whatever the
+// readout is set to:
+//   DD    50.22305, -121.55211   ·   50.22305N 121.55211W
+//   DDM   50°13.383'N 121°34.867'W   ·   N50 13.383 W121 34.867
+//   DMS   50°13'23.0"N 121°34'52.0"W   ·   50 13 23 N 121 34 52 W
+//   UTM   10U 601500E 5564000N   ·   10 601500 5564000   ·   Zone 10 E601500 N5564000
+//   MGRS  10UFA0150064000   ·   10U FA 01500 64000
+//   BC Albers  1195328E 382812N   ·   BC Albers 1195328 382812
 
-/** Parse "50.223, -121.552", DMS, UTM ("10U 601500 5564000"), or MGRS. */
-export function parseCoordinate(input: string): Position | null {
-  const s = input.trim()
-  if (!s) return null
+/** Two numbers with optional E/N tags (before or after). E-then-N unless tagged. */
+const NUM = String.raw`(\d+(?:\.\d+)?)\s*(?:M\s*)?`
+// "E601500 N5564000": both tags in front.
+const EN_PREFIX = new RegExp(String.raw`^([EN])\s*${NUM}[,;/]?\s*([EN])\s*${NUM}$`)
+// "601500E 5564000N", "601500 5564000", "601500E5564000N": tags (if any) after.
+const EN_SUFFIX = new RegExp(
+  String.raw`^${NUM}([EN])?(?:\s*[,;/]\s*|\s+|(?<=[EN]))${NUM}([EN])?$`,
+)
 
-  // MGRS: e.g. 10UFA1500064000 (with or without spaces)
-  const compact = s.replace(/\s+/g, '').toUpperCase()
-  if (/^\d{1,2}[C-X][A-HJ-NP-Z]{2}(\d{2,10})$/.test(compact)) {
-    try {
-      const [lng, lat] = mgrs.toPoint(compact)
-      return [lng, lat]
-    } catch {
-      return null
-    }
-  }
+function parseEastingNorthing(s: string): { e: number; n: number } | null {
+  const m = EN_PREFIX.exec(s) ?? EN_SUFFIX.exec(s)
+  if (!m) return null
+  const prefixed = /^[EN]/.test(s)
+  const [first, a, second, b] = prefixed ? [m[1], m[2], m[3], m[4]] : [m[2], m[1], m[4], m[3]]
+  if (first && first === second) return null
+  return first === 'N' || second === 'E'
+    ? { e: Number(b), n: Number(a) }
+    : { e: Number(a), n: Number(b) }
+}
 
-  // UTM: zone + band + easting + northing
-  const utmMatch = /^(\d{1,2})\s*([C-HJ-NP-X])\s+(\d+(?:\.\d+)?)[,\s]+(\d+(?:\.\d+)?)$/i.exec(s)
-  if (utmMatch) {
-    const [, zone, band, e, n] = utmMatch
-    return fromUtm({
-      zone: Number(zone),
-      band: band.toUpperCase(),
-      easting: Number(e),
-      northing: Number(n),
-    })
-  }
-
-  // DMS: 50°13'23"N 121°34'52"W (accepts ° ' " or spaces)
-  if (/[°'"]/.test(s)) {
-    const parts = s.match(/(\d+(?:\.\d+)?)[°\s]+(\d+(?:\.\d+)?)?['\s]*(\d+(?:\.\d+)?)?"?\s*([NSEW])/gi)
-    if (parts && parts.length === 2) {
-      const values = parts.map((p) => {
-        const m = /(\d+(?:\.\d+)?)[°\s]+(?:(\d+(?:\.\d+)?)['\s]*)?(?:(\d+(?:\.\d+)?)"?\s*)?([NSEW])/i.exec(p)!
-        const value = Number(m[1]) + Number(m[2] ?? 0) / 60 + Number(m[3] ?? 0) / 3600
-        const hemi = m[4].toUpperCase()
-        return { value: /[SW]/.test(hemi) ? -value : value, isLat: /[NS]/.test(hemi) }
-      })
-      const lat = values.find((v) => v.isLat)
-      const lon = values.find((v) => !v.isLat)
-      if (lat && lon) return [lon.value, lat.value]
-    }
+function parseMgrs(s: string): Position | null {
+  const compact = s.replace(/^MGRS\s*/, '').replace(/\s+/g, '')
+  const m = /^\d{1,2}[C-HJ-NP-X][A-HJ-NP-Z]{2}(\d*)$/.exec(compact)
+  if (!m || m[1].length % 2 || m[1].length > 10) return null
+  try {
+    const [lng, lat] = mgrs.toPoint(compact)
+    return Number.isFinite(lat) && Number.isFinite(lng) ? [lng, lat] : null
+  } catch {
     return null
   }
+}
 
-  // Decimal degrees: "lat, lon" (optionally with N/S/E/W suffixes)
-  const ddMatch =
-    /^(-?\d+(?:\.\d+)?)\s*([NS])?[,\s]+(-?\d+(?:\.\d+)?)\s*([EW])?$/i.exec(s)
-  if (ddMatch) {
-    let lat = Number(ddMatch[1])
-    let lon = Number(ddMatch[3])
-    if (ddMatch[2]?.toUpperCase() === 'S') lat = -Math.abs(lat)
-    if (ddMatch[4]?.toUpperCase() === 'W') lon = -Math.abs(lon)
-    if (Math.abs(lat) <= 90 && Math.abs(lon) <= 180) return [lon, lat]
+function parseUtm(s: string): Position | null {
+  const body = s.replace(/^UTM\s*/, '').replace(/^ZONE\s*/, '')
+  // Band joined to the zone ("10U"), or spaced but not E/N (those are tags).
+  const m = /^(\d{1,2})(?:([C-HJ-NP-X])|\s+([C-DF-HJ-MP-X]))?\s+(.+)$/.exec(body)
+  if (!m) return null
+  const zone = Number(m[1])
+  const band = m[2] ?? m[3] ?? 'N' // no band: northern hemisphere
+  const en = parseEastingNorthing(m[4])
+  if (!en || zone < 1 || zone > 60) return null
+  if (en.e < 100_000 || en.e > 900_000 || en.n > 10_000_000) return null
+  const pos = fromUtm({ zone, band, easting: en.e, northing: en.n })
+  return Number.isFinite(pos[1]) && pos[1] >= -80 && pos[1] <= 84 ? pos : null
+}
+
+function parseAlbers(s: string): Position | null {
+  const body = s.replace(/^(?:BC\s*ALBERS|ALBERS|BCA|EPSG\s*:?\s*3005)\s*:?\s*/, '')
+  const en = parseEastingNorthing(body)
+  // Small numbers are degrees, not metres.
+  if (!en || en.e < 1000 || en.n < 1000) return null
+  const pos = fromBcAlbers(en.e, en.n)
+  return pos && inBcAlbersArea(pos) ? pos : null
+}
+
+interface AngleHalf {
+  value: number
+  axis: 'lat' | 'lon' | null
+}
+
+/** One of latitude or longitude: degrees with optional minutes and seconds. */
+function parseAngle(s: string): AngleHalf | null {
+  const m =
+    /^([NSEW])?\s*([-+]?\d+(?:\.\d+)?)\s*°?\s*(?:(\d+(?:\.\d+)?)\s*'?\s*)?(?:(\d+(?:\.\d+)?)\s*"?\s*)?([NSEW])?$/.exec(
+      s.trim(),
+    )
+  if (!m || (m[1] && m[5])) return null
+  const [, , d, min, sec] = m
+  // Only the last part given may have decimals; minutes and seconds under 60.
+  if ((min && d.includes('.')) || (sec && min?.includes('.'))) return null
+  if (Number(min ?? 0) >= 60 || Number(sec ?? 0) >= 60) return null
+  const hemi = m[1] ?? m[5]
+  const negative = d.startsWith('-')
+  if (negative && (hemi === 'N' || hemi === 'E')) return null
+  const abs = Math.abs(Number(d)) + Number(min ?? 0) / 60 + Number(sec ?? 0) / 3600
+  return {
+    value: negative || hemi === 'S' || hemi === 'W' ? -abs : abs,
+    axis: hemi === 'N' || hemi === 'S' ? 'lat' : hemi ? 'lon' : null,
   }
-  return null
+}
+
+function parseLatLon(s: string): Position | null {
+  const hemis = [...s.matchAll(/[NSEW]/g)]
+  let halves: [string, string]
+  if (hemis.length === 2) {
+    // "N50 … W121 …" splits before the second letter; "50 …N 121 …W" after the first.
+    const cut = /^[NSEW]/.test(s) ? hemis[1].index! : hemis[0].index! + 1
+    halves = [s.slice(0, cut), s.slice(cut)]
+  } else if (hemis.length > 2) {
+    return null
+  } else if (/[,;/]/.test(s)) {
+    const parts = s.split(/[,;/]/)
+    if (parts.length !== 2) return null
+    halves = [parts[0], parts[1]]
+  } else {
+    // Only spaces: split the numbers evenly (D D, DM DM or DMS DMS).
+    const nums = [...s.matchAll(/[-+]?\d+(?:\.\d+)?/g)]
+    if (!nums.length || nums.length > 6 || nums.length % 2) return null
+    const cut = nums[nums.length / 2].index!
+    halves = [s.slice(0, cut), s.slice(cut)]
+  }
+  let a = parseAngle(halves[0].replace(/^[\s,;/]+|[\s,;/]+$/g, ''))
+  let b = parseAngle(halves[1].replace(/^[\s,;/]+|[\s,;/]+$/g, ''))
+  if (!a || !b) return null
+  if (a.axis === 'lon' || b.axis === 'lat') [a, b] = [b, a] // longitude written first
+  if (a.axis && a.axis === b.axis) return null
+  let lat = a.value
+  let lon = b.value
+  // Unlabelled "lon, lat" (GIS order): the first number can't be a latitude.
+  if (!a.axis && !b.axis && Math.abs(lat) > 90 && Math.abs(lon) <= 90) [lat, lon] = [lon, lat]
+  return Math.abs(lat) <= 90 && Math.abs(lon) <= 180 ? [lon, lat] : null
+}
+
+/** Parse a typed coordinate in any supported format, or null. */
+export function parseCoordinate(input: string): Position | null {
+  const s = input
+    .trim()
+    .toUpperCase()
+    .replace(/[′’‘`´]/g, "'")
+    .replace(/''/g, '"')
+    .replace(/[″“”]/g, '"')
+    .replace(/[º˚]/g, '°')
+    .replace(/\s+/g, ' ')
+  if (!s) return null
+  return parseMgrs(s) ?? parseUtm(s) ?? parseAlbers(s) ?? parseLatLon(s)
 }
