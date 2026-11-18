@@ -15,10 +15,13 @@ or days, so any imagery we show has to be:
    to people using Avenza).
 
 Today the satellite layer is Esri World Imagery, fetched from
-`server.arcgisonline.com` with no account (`src/map/basemap.ts`). The service
-worker keeps every tile it sees for 90 days (`vite.config.ts`). "Save offline"
-doesn't download satellite tiles. "Send this area as a map" (#13) leaves
-satellite out on purpose (`SATELLITE_NOTE` in `src/lib/send-area.ts`).
+`server.arcgisonline.com` with no account (`src/map/basemap.ts`). It is
+online only: the service worker no longer keeps its tiles (`vite.config.ts`),
+tiles older versions kept are removed at start, and "Save offline" doesn't
+download them. Without signal the map shows streets and the layers sheet says
+satellite needs signal (`src/lib/satellite-signal.ts`). "Send this area as a
+map" (#13) leaves satellite out on purpose (`SATELLITE_NOTE` in
+`src/lib/send-area.ts`).
 
 ## Recommendation
 
@@ -156,9 +159,9 @@ ArcGIS Maps SDKs, not MapLibre. Online use with a token is metered
 ([pricing](https://location.arcgis.com/pricing/): basemap tiles "2M free then
 $0.15 per 1,000 tiles").
 
-**What this means for us:** today the service worker keeps Esri tiles for
-offline use, which the terms forbid, and we use the service without an
-account. Printing it into exported maps would break the terms too, which is
+**What this means for us:** until 2026-11-18 the service worker kept Esri
+tiles for offline use, which the terms forbid; it no longer does, and tiles it
+kept are removed. We still use the service without an account. Printing it into exported maps would break the terms too, which is
 why the send-area export (#13) leaves satellite out.
 
 ## BC Government imagery (Open Government Licence – BC?)
@@ -352,8 +355,9 @@ domain. It stops at the border, so it's no use in BC.
 
 - `src/map/basemap.ts`: the `satellite` source's tile URL, `maxzoom` (14 for
   Sentinel-2) and `attribution`.
-- `vite.config.ts`: the CacheFirst pattern (drop `server.arcgisonline.com`,
-  add the new host).
+- `vite.config.ts`: Esri is already out of `TILE_CACHE_PATTERN`; self-hosted
+  PMTiles are read with Range requests, so they're saved as packs, not by the
+  service worker.
 - `src/lib/mappacks.ts`: add satellite tiles to "Save offline" (counted
   against the tile cap on the website).
 - The send-area export: stop filtering `satellite` out in

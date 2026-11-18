@@ -95,6 +95,12 @@ export const MAP_FONTSTACKS = [
   ]),
 ]
 
+/** Esri World Imagery. Online only: its terms allow offline use only inside
+ * Esri software, so the service worker doesn't cache these tiles and Save
+ * offline doesn't download them (see src/lib/satellite-signal.ts). */
+export const SATELLITE_TILE_URL =
+  'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
+
 // Satellite sits right above the background; the hillshade goes over the land
 // fills but under water, roads and labels.
 const [background, ...rest] = BASE_LAYERS
@@ -108,9 +114,7 @@ export const MAP_STYLE: maplibregl.StyleSpecification = {
     openmaptiles: { type: 'vector', url: TILEJSON_URL },
     satellite: {
       type: 'raster',
-      tiles: [
-        'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-      ],
+      tiles: [SATELLITE_TILE_URL],
       tileSize: 256,
       maxzoom: 19,
       attribution: 'Imagery: Esri, Vantor, Earthstar Geographics, and the GIS User Community',

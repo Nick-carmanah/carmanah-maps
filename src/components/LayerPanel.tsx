@@ -15,6 +15,8 @@ interface LayerPanelProps {
   gridOn: boolean
   onToggleGrid: () => void
   basemap: 'streets' | 'satellite'
+  /** False when satellite has no signal (it's online only). */
+  satelliteOk: boolean
   onSetBasemap: (b: 'streets' | 'satellite') => void
   onClose: () => void
   /** My Data: the editable layer tree (drawn and imported features). */
@@ -35,6 +37,7 @@ export default function LayerPanel({
   gridOn,
   onToggleGrid,
   basemap,
+  satelliteOk,
   onSetBasemap,
   onClose,
   myData,
@@ -51,7 +54,12 @@ export default function LayerPanel({
         </button>
       </div>
       <div className="layer-row">
-        <span className="name">Basemap</span>
+        <span className="name">
+          Basemap
+          {basemap === 'satellite' && !satelliteOk && (
+            <div className="meta">No signal: showing streets</div>
+          )}
+        </span>
         <span className="basemap-choice">
           {(['streets', 'satellite'] as const).map((b) => (
             <button
@@ -60,6 +68,7 @@ export default function LayerPanel({
               onClick={() => onSetBasemap(b)}
             >
               {b === 'streets' ? '🗺 Streets' : '🛰 Satellite'}
+              {b === 'satellite' && !satelliteOk && <small>needs signal</small>}
             </button>
           ))}
         </span>
