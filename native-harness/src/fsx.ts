@@ -137,7 +137,7 @@ export function fmtBytes(n: number): string {
 // maps/_harness/results/<name>.json, which the Mac reads back. Buttons in the
 // UI run the same functions.
 
-export interface Command { page: 'index' | 'tools'; action: string; args?: Record<string, unknown> }
+export interface Command { page: 'index' | 'tools' | 'storage'; action: string; args?: Record<string, unknown> }
 
 export async function takeCommand(page: Command['page']): Promise<Command | null> {
   const p = `${HARNESS}/command.json`
@@ -145,7 +145,7 @@ export async function takeCommand(page: Command['page']): Promise<Command | null
   let cmd: Command
   try { cmd = JSON.parse(await readText(p)) } catch { await remove(p); return null }
   if (cmd.page !== page) {
-    location.href = cmd.page === 'tools' ? './tools.html' : './index.html'
+    location.href = `./${cmd.page}.html`
     return null
   }
   await remove(p)
