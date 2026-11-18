@@ -8,8 +8,8 @@ This folder is **not** part of the production web build or the PR check. It
 has its own `package.json` and lock. The root `tsconfig` only includes `src/`,
 and the root Vite build starts from the root `index.html`. Capacitor is pinned
 to exactly the crew app's `mobile/` versions: `@capacitor/core`, `@capacitor/ios`
-and `@capacitor/cli` 8.6.0, `@capacitor/filesystem` 8.1.5. iOS uses Swift
-Package Manager, no CocoaPods.
+and `@capacitor/cli` 8.6.0, `@capacitor/filesystem` 8.1.5, `@capacitor/share`
+8.0.3. iOS uses Swift Package Manager, no CocoaPods.
 
 ## What's in it
 
@@ -23,6 +23,23 @@ Package Manager, no CocoaPods.
 | `scripts/make-scale-pack.ts` | Makes the synthetic 15,074-tile, 0.6 GB scale pack on the Mac (`node scripts/make-scale-pack.ts`). |
 | `scripts/serve-pack.mjs` | Range-capable localhost server for the scale pack (`npm run serve-pack`). |
 | `scripts/sim.sh` | Writes a command into the simulator app's container, relaunches it, and waits for the results JSON. |
+
+## The crew app's map page
+
+`npm run sync:maps` (after `npm run build:embedded` at the repo root) also puts
+the embedded build at `maps/` and @capacitor/core's `dist/capacitor.js` at
+`/capacitor.js`, the way the crew app serves them
+(`scripts/add-maps-page.mjs`). The harness copy of `maps/index.html` gets one
+extra script that reports load failures, uncaught errors and a status line to
+the Xcode console. Open it from the Mac, optionally with a stand-in for the
+crew app's hand-off (`null` removes it):
+
+```bash
+scripts/sim.sh <udid> '{"page":"maps","action":"open","args":{"mapsContext":{"ownerId":"u123","fireNumber":"K61067","callSign":"2P14"}}}' 60
+```
+
+Share copies land in the app's `Library/Caches/shared/maps-<id>/`. Results of
+the 2026-11-18 run: [`docs/crew-app-handoff.md`](../docs/crew-app-handoff.md) §10.
 
 ## Run it
 

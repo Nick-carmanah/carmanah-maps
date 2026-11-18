@@ -7,12 +7,14 @@
   "scripts": {
     "build": "tsc --noEmit && vite build",
     "sync": "npm run build && cap sync ios",
+    "sync:maps": "npm run build && node scripts/add-maps-page.mjs && cap sync ios",
     "serve-pack": "node scripts/serve-pack.mjs"
   },
   "dependencies": {
     "@capacitor/core": "8.6.0",
     "@capacitor/filesystem": "8.1.5",
     "@capacitor/ios": "8.6.0",
+    "@capacitor/share": "8.0.3",
     "maplibre-gl": "5.24.0",
     "pmtiles": "4.5.0"
   },

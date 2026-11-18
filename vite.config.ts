@@ -1,10 +1,14 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
+import { EMBEDDED_BASE, EMBEDDED_MODE, EMBEDDED_OUT_DIR, embeddedBuild } from './build/embedded'
 
-export default defineConfig({
+// `vite build --mode embedded` (npm run build:embedded) makes the map page the
+// crew app ships at /maps/, without a service worker: see build/embedded.ts.
+export default defineConfig(({ mode }) => ({
   // GitHub Pages serves the app under /carmanah-maps/; local dev stays at /.
-  base: process.env.GITHUB_ACTIONS ? '/carmanah-maps/' : '/',
+  base: mode === EMBEDDED_MODE ? EMBEDDED_BASE : process.env.GITHUB_ACTIONS ? '/carmanah-maps/' : '/',
+  build: mode === EMBEDDED_MODE ? { outDir: EMBEDDED_OUT_DIR, emptyOutDir: true } : {},
   // The pdf.js worker (src/lib/pdfjs-worker.ts). If a real worker can't
   // start, pdf.js falls back to importing it on the page and reading its
   // WorkerMessageHandler export, so build it as an ES module and keep that
@@ -20,7 +24,7 @@ export default defineConfig({
   },
   plugins: [
     react(),
-    VitePWA({
+    mode === EMBEDDED_MODE ? embeddedBuild() : VitePWA({
       registerType: 'autoUpdate',
       manifest: {
         name: 'Carmanah Maps',
@@ -39,7 +43,9 @@ export default defineConfig({
       workbox: {
         // The pdf.js worker (assets/pdfjs-worker-*.js) must be in here, or
         // GeoPDF import fails offline. mjs: in case a future build emits one.
-        globPatterns: ['**/*.{js,mjs,css,html,png,svg,woff2}'],
+        // pbf + json: the basemap's label fonts and icon sheets
+        // (public/basemap/), so labels draw offline from the first visit.
+        globPatterns: ['**/*.{js,mjs,css,html,png,svg,woff2}', 'basemap/**/*.{pbf,json}'],
         runtimeCaching: [
           {
             // Basemap TileJSON: network-first so new weekly tile builds are
@@ -84,4 +90,4 @@ export default defineConfig({
       }
     })
   ]
-})
+}))

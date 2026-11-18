@@ -40,6 +40,8 @@ import {
 import { useUnitSettings } from './hooks/useUnitSettings'
 import { formatDuration, trackStats, useTrackRecorder } from './hooks/useTrackRecorder'
 import { conventionActive, buildConventionName, getProfile, saveProfile } from './lib/naming'
+import { readMapsContext } from './lib/storage/owner'
+import { EMBEDDED } from './lib/embedded'
 import { navTargetPosition, useNavigation } from './hooks/useNavigation'
 import { useGeofences } from './hooks/useGeofences'
 import { useMapsLibrary } from './hooks/useMapsLibrary'
@@ -536,7 +538,9 @@ export default function App() {
         )
         setExportLayerIds(null)
         const how = await shareOrDownload(file.filename, file.mime, file.content)
-        showToast(how === 'shared' ? `Shared ${opts.docName}` : `Downloaded ${file.filename}`)
+        if (how !== 'cancelled') {
+          showToast(how === 'shared' ? `Shared ${opts.docName}` : `Downloaded ${file.filename}`)
+        }
       } catch (err) {
         showToast(`Export failed: ${(err as Error).message}`, true)
       } finally {
@@ -579,6 +583,12 @@ export default function App() {
       }}
     >
       <header className="topbar">
+        {/* In the crew app this page has no browser chrome, so it links back. */}
+        {EMBEDDED && (
+          <a className="btn home-link" href="/" aria-label="Back to the crew app">
+            ‹ Home
+          </a>
+        )}
         <h1>
           <span className="flame">🔥</span>Carmanah Maps
         </h1>
@@ -1007,6 +1017,7 @@ export default function App() {
                 />
               </label>
             </div>
+            <HandOffHint />
             <div className="settings-hint">
               {conventionActive()
                 ? `New features will be auto-named like: ${buildConventionName('Edge')}`
@@ -1023,6 +1034,19 @@ export default function App() {
       {maps.importStatus && !maps.pendingPick && <ImportChip status={maps.importStatus} />}
 
       {toast && <div className={`toast${toast.isError ? ' error' : ''}`}>{toast.message}</div>}
+    </div>
+  )
+}
+
+/** In the crew app: the call sign and fire number it handed over, which names use
+ * instead of the fields above (src/lib/naming.ts, namingProfile). */
+function HandOffHint() {
+  const { callSign, fireNumber } = readMapsContext()
+  if (!callSign && !fireNumber) return null
+  const parts = [callSign && `call sign ${callSign}`, fireNumber && `fire ${fireNumber}`].filter(Boolean)
+  return (
+    <div className="settings-hint">
+      From the crew app: {parts.join(', ')}. Names use these over the fields above.
     </div>
   )
 }

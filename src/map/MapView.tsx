@@ -35,6 +35,7 @@ import {
   MAX_TILES,
 } from '../lib/mappacks'
 import { BASEMAP_LAYER_IDS, MAP_STYLE } from './basemap'
+import { EMBEDDED } from '../lib/embedded'
 
 interface MapViewProps {
   /** Imported maps from the Maps library (GeoPDFs), oldest first. */
@@ -595,18 +596,23 @@ export default function MapView({
         </div>
       )}
       <div className="center-crosshair" aria-hidden />
-      <button
-        className="btn offline-btn"
-        onClick={saveOffline}
-        disabled={!!packProgress}
-        title="Download basemap and terrain tiles for the current view"
-      >
-        {packProgress
-          ? `Saving… ${Math.round((packProgress.done / packProgress.total) * 100)}%`
-          : packEstimate !== null
-            ? `${packEstimate} tiles · ~${Math.max(1, Math.round((packEstimate * AVG_TILE_KB) / 1024))} MB — tap to confirm`
-            : '⬇ Save offline'}
-      </button>
+      {/* Saved areas are served offline by the website's service worker. The
+          crew app has none of ours, so there they'd download and never be
+          used: offline areas come to it with native packs (plan Phase 0.3). */}
+      {!EMBEDDED && (
+        <button
+          className="btn offline-btn"
+          onClick={saveOffline}
+          disabled={!!packProgress}
+          title="Download basemap and terrain tiles for the current view"
+        >
+          {packProgress
+            ? `Saving… ${Math.round((packProgress.done / packProgress.total) * 100)}%`
+            : packEstimate !== null
+              ? `${packEstimate} tiles · ~${Math.max(1, Math.round((packEstimate * AVG_TILE_KB) / 1024))} MB — tap to confirm`
+              : '⬇ Save offline'}
+        </button>
+      )}
       {measureMode && (
         <div className="measure-chip">
           <span className="readout">

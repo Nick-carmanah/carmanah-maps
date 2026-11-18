@@ -479,14 +479,135 @@ export async function buildExport(input: ExportInput, opts: ExportOptions): Prom
   }
 }
 
+// ---------- Sharing ----------
+//
+// In the crew app's store build (rebuild plan §0) files go to the phone's own
+// share sheet through Capacitor's Filesystem and Share plugins, so AirDrop,
+// Quick Share and "Open in Avenza Maps" work there; Android's web view has no
+// Web Share at all. The plugins are reached through window.Capacitor (the
+// crew app loads its /capacitor.js before this page's scripts): there is no
+// Capacitor package in this app. Everywhere else, the Web Share API.
+
+/** Each share's copy lives in Cache `shared/maps-<id>/`, removed once the
+ * share ends. The crew app clears Cache `shared/` as well when it starts and
+ * when someone signs out, so nobody's files wait there for the next person. */
+const SHARE_DIR = 'shared'
+/** After a completed share the copy stays this long: on Android the app it
+ * went to gets a link to the file and may read it after the person is back. */
+const SHARE_COPY_KEEP_MS = 2 * 60 * 1000
+/** Bytes per bridge call. A multiple of 3, so each piece is whole base64;
+ * pieces keep a large map original from becoming one huge string. */
+const SHARE_CHUNK = 3 * 1024 * 1024
+
+interface FilesystemPlugin {
+  writeFile(o: { path: string; data: string; directory: 'CACHE'; recursive?: boolean }): Promise<{ uri: string }>
+  appendFile(o: { path: string; data: string; directory: 'CACHE' }): Promise<void>
+  rmdir(o: { path: string; directory: 'CACHE'; recursive?: boolean }): Promise<void>
+}
+interface SharePlugin {
+  share(o: { title?: string; files?: string[] }): Promise<unknown>
+}
+interface CapacitorGlobal {
+  isNativePlatform?: () => boolean
+  isPluginAvailable?: (name: string) => boolean
+  registerPlugin?: (name: string) => unknown
+  Plugins?: Record<string, unknown>
+}
+
+/** A Capacitor plugin by name, in the store app only (null on the website, or
+ * when the app doesn't include it). Same lookup as the crew app's own. */
+function nativePlugin<T>(name: string): T | null {
+  const cap = (globalThis as { Capacitor?: CapacitorGlobal }).Capacitor
+  try {
+    if (!cap?.isNativePlatform?.()) return null
+    const known = cap.Plugins?.[name]
+    if (known) return known as T
+    if (cap.isPluginAvailable && !cap.isPluginAvailable(name)) return null
+    return (cap.registerPlugin?.(name) as T | undefined) ?? null
+  } catch {
+    return null
+  }
+}
+
+function blobBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result ?? '').split(',')[1] ?? '')
+    reader.onerror = () => reject(reader.error ?? new Error('Couldn’t read the file'))
+    reader.readAsDataURL(blob)
+  })
+}
+
+function shareId(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(12))
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
+}
+
+/** A name the share sheet and the phone's file system both take. */
+function shareFileName(name: string): string {
+  return name.replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '-').trim().slice(0, 120) || 'Carmanah Maps file'
+}
+
+const isCancel = (err: unknown) => {
+  const e = err as { name?: string; message?: string } | null
+  return e?.name === 'AbortError' || /cancel/i.test(String(e?.message ?? err ?? ''))
+}
+
+/**
+ * Share through the store app's share sheet: write the file to Cache with the
+ * Filesystem plugin, hand its file:// URI to the Share plugin, then delete
+ * the copy (at once if the share was cancelled or failed, a little later if
+ * it went through). Null when this isn't the store app. Throws if the file
+ * couldn't be written or shared.
+ */
+export async function shareNatively(file: File): Promise<'shared' | 'cancelled' | null> {
+  const filesystem = nativePlugin<FilesystemPlugin>('Filesystem')
+  const share = nativePlugin<SharePlugin>('Share')
+  if (!filesystem || !share) return null
+
+  const folder = `${SHARE_DIR}/maps-${shareId()}`
+  const path = `${folder}/${shareFileName(file.name)}`
+  let outcome: 'shared' | 'cancelled' | 'failed' = 'failed'
+  try {
+    let uri = ''
+    let offset = 0
+    do {
+      const data = await blobBase64(file.slice(offset, offset + SHARE_CHUNK))
+      if (offset === 0) {
+        uri = (await filesystem.writeFile({ path, data, directory: 'CACHE', recursive: true })).uri
+      } else {
+        await filesystem.appendFile({ path, data, directory: 'CACHE' })
+      }
+      offset += SHARE_CHUNK
+    } while (offset < file.size)
+    try {
+      await share.share({ title: file.name, files: [uri] })
+      outcome = 'shared'
+    } catch (err) {
+      if (!isCancel(err)) throw err
+      outcome = 'cancelled'
+    }
+    return outcome
+  } finally {
+    const remove = () =>
+      filesystem.rmdir({ path: folder, directory: 'CACHE', recursive: true }).catch(() => {
+        // already gone (the crew app cleared it), or never written
+      })
+    if (outcome === 'shared') setTimeout(remove, SHARE_COPY_KEEP_MS)
+    else void remove()
+  }
+}
+
 /** Share via the OS share sheet when available (AirDrop to Avenza on
- * iPhone), otherwise download. */
+ * iPhone), otherwise download. In the store app: its own share sheet. */
 export async function shareOrDownload(
   filename: string,
   mime: string,
   content: string | Blob,
-): Promise<'shared' | 'downloaded'> {
+): Promise<'shared' | 'downloaded' | 'cancelled'> {
   const file = new File([content], filename, { type: mime })
+  const native = await shareNatively(file)
+  if (native) return native
   if (navigator.canShare?.({ files: [file] })) {
     try {
       await navigator.share({ files: [file], title: filename })

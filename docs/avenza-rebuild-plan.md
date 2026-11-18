@@ -224,6 +224,9 @@ Each phase ships on its own. Sizes are rough relative effort.
 2. **Embedded build** (S). Build with base `/maps/` and no service worker,
    write `precache-manifest.json`, bundle the label fonts (no remote
    glyphs), and read `carmanah.mapsContext.v1` for call sign and fire number.
+   Done: `npm run build:embedded`, plus native share through the Share
+   plugin. Hand-over notes for the Carmanah App master:
+   [crew-app-handoff.md](crew-app-handoff.md).
 3. **Storage layer** (L). One interface for tiles, packs, imported maps and
    photos: OPFS/IndexedDB on the web, Filesystem in the app. Personal data is
    namespaced per owner (see §0, shared phones); basemap packs are shared.
