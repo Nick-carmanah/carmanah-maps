@@ -344,9 +344,18 @@ the bucket after each upload.
 
 ## 6. Publishing packs
 
-The pack builder (`scripts/packs/`, next PR) cuts the area-wide archives and
-fire packs and publishes them with the commands above, then updates
-`catalog.json` last, so a phone never sees a catalog entry before its files.
+The pack builder ([fire-packs.md §4](fire-packs.md#4-the-builder)) cuts the
+area-wide archives and fire packs; `scripts/packs/publish.ts` uploads them
+with `upload.ts` and updates `catalog.json` last, so a phone never sees a
+catalog entry before its files:
+
+```bash
+node scripts/packs/build-pack.ts --area bc
+```
+
+```bash
+node scripts/packs/publish.ts --area samples/packs/area-bc
+```
 
 Refresh rhythm: the vector archive monthly in fire season (OSM edits to
 roads and trails show up), terrain never. Keep the previous vector archive
