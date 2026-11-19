@@ -1,6 +1,7 @@
 import type { Position } from 'geojson'
 
-const EARTH_RADIUS_M = 6371008.8
+/** Mean Earth radius: the sphere every length, area and bearing in the app uses. */
+export const EARTH_RADIUS_M = 6371008.8
 
 const rad = (deg: number) => (deg * Math.PI) / 180
 
