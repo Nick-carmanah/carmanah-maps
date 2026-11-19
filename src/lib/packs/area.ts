@@ -6,6 +6,7 @@
 // imports carry their .ts extension so Node runs this file as it is.
 
 import { zxyToTileId } from 'pmtiles'
+import { metresPerDegree, WGS84 } from '../geodesic.ts'
 
 export type LonLat = [number, number]
 /** west, south, east, north */
@@ -18,6 +19,7 @@ export interface PackArea {
   bufferM: number
 }
 
+/** Mean Earth radius: only for tile sizes (a tolerance), not for measuring. */
 const R = 6371008.8
 const RAD = Math.PI / 180
 const MAX_LAT = 85.0511
@@ -83,19 +85,19 @@ export function bboxRing([w, s, e, n]: Bbox): LonLat[] {
 
 // ---------- Measuring ----------
 
-/** Area of the rings in hectares (spherical excess; overlapping rings count twice). */
+/** Area of the rings in hectares (geodesic, WGS84; overlapping rings count twice). */
 export function ringsHectares(rings: LonLat[][]): number {
   let total = 0
   for (const ring of rings) {
-    let sum = 0
-    for (let i = 0; i < ring.length; i++) {
-      const [x1, y1] = ring[i]
-      const [x2, y2] = ring[(i + 1) % ring.length]
-      sum += (x2 - x1) * RAD * (2 + Math.sin(y1 * RAD) + Math.sin(y2 * RAD))
-    }
-    total += Math.abs((sum * R * R) / 2)
+    if (ring.length >= 3) total += Math.abs(WGS84.polygon(ring, { lonLat: true, perimeter: false }).area)
   }
   return total / 10_000
+}
+
+/** Metres per degree east and north for a local frame at `lat0` (true there, on WGS84). */
+function localScale(lat0: number): { kx: number; ky: number } {
+  const { east, north } = metresPerDegree(lat0)
+  return { kx: east, ky: north }
 }
 
 /** Bounding box of the area including its buffer. */
@@ -109,8 +111,13 @@ export function areaBbox(area: PackArea): Bbox {
       n = Math.max(n, y)
     }
   }
-  const dLat = area.bufferM / (R * RAD)
-  const dLon = dLat / Math.max(0.05, Math.cos(Math.max(Math.abs(s), Math.abs(n)) * RAD))
+  // Degrees per metre are largest where a degree is shortest: north–south at
+  // the buffer's edge nearest the equator, east–west nearest the pole.
+  const nearEquator = s <= 0 && n >= 0 ? 0 : Math.min(Math.abs(s), Math.abs(n))
+  const nearPole = Math.min(90, Math.max(Math.abs(s), Math.abs(n)))
+  const bufferEdge = Math.max(0, nearEquator - area.bufferM / metresPerDegree(nearEquator).north)
+  const dLat = area.bufferM / metresPerDegree(bufferEdge).north
+  const dLon = area.bufferM / Math.max(0.05 * metresPerDegree(0).east, metresPerDegree(nearPole).east)
   return [Math.max(-180, w - dLon), Math.max(-MAX_LAT, s - dLat), Math.min(180, e + dLon), Math.min(MAX_LAT, n + dLat)]
 }
 
@@ -145,8 +152,7 @@ export function coverZoom(area: PackArea, z: number): ZoomTiles {
   if (!rings.length) return { z, keys: [] }
   const [w, s, e, nn] = areaBbox(area)
   const lat0 = (s + nn) / 2
-  const kx = R * RAD * Math.cos(lat0 * RAD)
-  const ky = R * RAD
+  const { kx, ky } = localScale(lat0)
   // Projected coordinates: metres east/north of (0°, 0°) at the area's latitude scale.
   const px = (lon: number) => lon * kx
   const py = (lat: number) => lat * ky
@@ -323,8 +329,7 @@ export function countTiles(levels: ZoomTiles[], minZoom = 0, maxZoom = 30): numb
 export function simplifyRing(ring: LonLat[], toleranceM: number): LonLat[] {
   if (ring.length <= 8 || toleranceM <= 0) return ring
   const lat0 = ring.reduce((s, p) => s + p[1], 0) / ring.length
-  const kx = R * RAD * Math.cos(lat0 * RAD)
-  const ky = R * RAD
+  const { kx, ky } = localScale(lat0)
   const pts = ring.map(([x, y]) => [x * kx, y * ky] as [number, number])
   const keep = new Uint8Array(ring.length)
   keep[0] = 1

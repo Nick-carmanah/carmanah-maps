@@ -19,6 +19,7 @@
  * Pure: no DOM, no GPS, so the sheet and the tests share it.
  */
 import type { Position } from 'geojson'
+import { metresPerDegree } from './geodesic'
 
 export interface AverageFix {
   lng: number
@@ -71,9 +72,6 @@ export interface AverageResult {
   status: FixStatus[]
 }
 
-const R = 6371008.8
-const M_PER_DEG = (Math.PI / 180) * R
-
 function median(values: number[]): number {
   const s = [...values].sort((a, b) => a - b)
   const mid = s.length >> 1
@@ -108,11 +106,11 @@ export function averageFixes(fixes: AverageFix[], opts: AverageOptions = {}): Av
   }
   if (!accurate.length) return empty
 
-  // Local frame: metres east/north of the first accurate fix.
+  // Local frame: metres east/north of the first accurate fix (true there, on WGS84).
   const lng0 = accurate[0].lng
   const lat0 = accurate[0].lat
-  const kx = M_PER_DEG * Math.cos((lat0 * Math.PI) / 180)
-  const xy = (f: AverageFix) => [(f.lng - lng0) * kx, (f.lat - lat0) * M_PER_DEG]
+  const { east: kx, north: ky } = metresPerDegree(lat0)
+  const xy = (f: AverageFix) => [(f.lng - lng0) * kx, (f.lat - lat0) * ky]
 
   if (accurate.length >= minForOutliers) {
     const pts = accurate.map(xy)
@@ -137,7 +135,7 @@ export function averageFixes(fixes: AverageFix[], opts: AverageOptions = {}): Av
   const alts = kept.map((f) => f.altitude).filter((a): a is number => a != null && Number.isFinite(a))
   const times = kept.map((f) => f.time)
   return {
-    position: [lng0 + cx / kx, lat0 + cy / M_PER_DEG],
+    position: [lng0 + cx / kx, lat0 + cy / ky],
     altitude: alts.length ? alts.reduce((s, a) => s + a, 0) / alts.length : null,
     count: n,
     received: fixes.length,

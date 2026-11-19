@@ -4,6 +4,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Position } from 'geojson'
+import { metresPerDegree } from '../src/lib/geodesic'
 import { containsPoint, distanceToMapM, mapDistances, roughDistance, sortByDistance } from '../src/lib/library/nearby'
 import {
   BASE_MAP,
@@ -20,27 +21,22 @@ import {
 } from '../src/lib/library/viewer'
 import type { Corners } from '../src/lib/library/types'
 
-/** Metres per degree on the sphere the module uses. */
-const M_PER_DEG = (6371008.8 * Math.PI) / 180
-
 /** A frame rotated like a UTM map in BC (grid convergence ~2°): corners TL, TR, BR, BL. */
 function frame(lon: number, lat: number, wKm: number, hKm: number, rotDeg = 2): Corners {
-  const kx = M_PER_DEG * Math.cos((lat * Math.PI) / 180)
+  // Metres per degree on WGS84 at the frame's latitude.
+  const { east: kx, north: ky } = metresPerDegree(lat)
   const r = (rotDeg * Math.PI) / 180
   const pt = (dx: number, dy: number): Position => {
     const x = dx * Math.cos(r) - dy * Math.sin(r)
     const y = dx * Math.sin(r) + dy * Math.cos(r)
-    return [lon + (x * 1000) / kx, lat + (y * 1000) / M_PER_DEG]
+    return [lon + (x * 1000) / kx, lat + (y * 1000) / ky]
   }
   return [pt(-wKm / 2, hKm / 2), pt(wKm / 2, hKm / 2), pt(wKm / 2, -hKm / 2), pt(-wKm / 2, -hKm / 2)]
 }
 
-/** A point `km` east (or west, negative) of a position. */
-const east = ([lon, lat]: Position, km: number): Position => [
-  lon + (km * 1000) / (M_PER_DEG * Math.cos((lat * Math.PI) / 180)),
-  lat,
-]
-const north = ([lon, lat]: Position, km: number): Position => [lon, lat + (km * 1000) / M_PER_DEG]
+/** A point `km` east (or west, negative) of a position, along its parallel. */
+const east = ([lon, lat]: Position, km: number): Position => [lon + (km * 1000) / metresPerDegree(lat).east, lat]
+const north = ([lon, lat]: Position, km: number): Position => [lon, lat + (km * 1000) / metresPerDegree(lat).north]
 
 const CENTRE: Position = [-120.35, 50.67]
 const MAP = frame(CENTRE[0], CENTRE[1], 8, 6)
