@@ -35,9 +35,12 @@ Legend: ✅ done · 🟡 partial · ⬜ todo · ➕ ours (no Avenza equivalent)
 | Plot GPS average | Pro | ✅ | Tools → Plot GPS average: stop manually, after 30/60 s or 20/60 fixes; discards fixes worse than a limit (default 20 m) and multipath jumps; live count, accuracy, spread; saves a placemark with fix count, mean accuracy, spread, start/end time |
 | View in Google Maps | Free | ✅ | Crosshair (Tools) or any feature (its sheet); says "needs signal" offline |
 | Convert tracks to areas | Pro | ✅ | Save-as-area in the stop/review step |
-| Navigation/path tools (navigate to placemark: bearing, distance, ETA) | Free | ✅ | Navigate from feature sheet: live distance/bearing/ETA/speed chip + dashed guidance line; bearings in °/mils, true or magnetic (offline WMM2025) |
-| Map rotation & compass | Free | 🟡 | Rotation works (drag/ctrl); needs device-compass north-up toggle on mobile |
-| Map orientation lock | Pro | ⬜ | Lock north-up / track-up |
+| Navigation/path tools (navigate to placemark: bearing, distance, ETA) | Free | ✅ | Tools → Navigate, or a feature's sheet: go to a placemark/feature, the crosshair (coordinates via Find), a projected point, or follow a saved line. Readout stays at the top of the map: distance, bearing (°/mils, true or magnetic via offline WMM2025), ETA at the current speed, speed, a pointer from the way you face. Survives the app being closed. See [docs/navigation.md](docs/navigation.md) |
+| Routes (ordered waypoints, leg by leg) | Free | ✅ | Plan a route: tap placemarks or the map, add the crosshair, your position or a placemark from a list; ▲▼✕ buttons (no drag), reverse, save as a line. Follow it leg by leg, advancing on arrival; Back / Skip / edit while navigating |
+| Project a point (bearing + distance) | Free | ✅ | From you, the crosshair or a placemark; bearing in the angle unit and north reference (quadrant like N45E too), distance in m/km/ft/mi/NM/chains; previews on the map; save as a placemark, go to it, or add it to the route |
+| Arrival and approach alerts | Free | ✅ | Arrival radius and an approach heads-up (Settings → Navigation); message + vibration (Android) + beep (Web Audio, offline) + notification when in the background; each alert once per waypoint |
+| Map rotation & compass | Free | ✅ | Compass button (48 px): north-up ↔ course-up. Course-up turns the map to the phone's compass (DeviceOrientation, iOS asks once from the tap), else the GPS course while moving; GPS course wins above 18 km/h. Heading cone on the location dot |
+| Map orientation lock | Pro | 🟡 | Course-up locks turning gestures while on; north-up is a tap on the compass. Screen orientation lock is the phone's own |
 | Coordinate search (go to coordinates) | Free | ✅ | Accepts DD, DDM, DMS (symbols or spaces, hemisphere before/after, signed), UTM (with or without band), MGRS and BC Albers, whatever the display setting; flies + drops marker |
 | Map feature search (POI) | Free | ✅ | Universal search: My Data + imported KML features + live fires; dropdown for multi-match. Place-name gazetteer later |
 | Coordinate formats: DD/DMS/UTM | Free | ✅ | Live center readout w/ crosshair; DDM default (BCWS standard), DD/DDM/DMS/UTM/MGRS/BC Albers (EPSG:3005), set in ⚙ or cycled on the pill |
@@ -114,7 +117,7 @@ New gaps found, beyond what the parity tables already track:
 
 | Tutorial feature | Status |
 |---|---|
-| Multi-point routes + navigate *along* a route (compass follows route) | 🟡 We draw/save lines and navigate to a point; no route-following mode |
+| Multi-point routes + navigate *along* a route (compass follows route) | ✅ Plan a route, or follow any saved line (an Avenza line, a track) point by point; leg by leg with arrival alerts; course-up follows your heading |
 | Selective export (pick individual features / "Custom" data) | ✅ Per-layer Share (KMZ) + per-layer scoping of all formats |
 | KMZ export with photos embedded | ✅ KMZ bundles doc.kml + photos; per-layer or all data |
 | GPX track export with timestamps/velocity | ✅ Recorded tracks keep per-point times; exported as <time> |
@@ -138,7 +141,7 @@ persist in IndexedDB and later sync via accounts).
 3. ~~Export KML/GPX/CSV~~ ✅ (share links todo)
 4. ~~GPS track recording + convert-track-to-area~~ ✅ (foreground; background = v2/Capacitor)
 5. ~~Coordinate readout/search (DD/DDM/DMS/UTM/MGRS) + units toggle~~ ✅
-6. ~~Navigate-to-placemark~~ ✅ — device-compass / orientation-lock modes still todo (need real device)
+6. ~~Navigate-to-placemark~~ ✅ — plus routes, project a point, arrival alerts, compass course-up (2026-11-19; compass still to be checked on real phones)
 7. ~~Geotagged photos, attribute fields, fire-ops symbol set~~ ✅
 8. ~~Geofences on features~~ ✅ (layer/boundary fences later)
 9. ~~Satellite basemap + feature search~~ ✅ (folders later)
