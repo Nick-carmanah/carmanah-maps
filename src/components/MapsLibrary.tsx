@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import type { Position } from 'geojson'
+import { distanceM } from '../lib/geodesic'
 import { formatBytes } from '../lib/library/library'
 import { UNSORTED, type LibraryMap } from '../lib/library/types'
 import { mapDistances, roughDistance, sortByDistance, type MapDistance } from '../lib/library/nearby'
@@ -797,21 +798,12 @@ function MoveForm({
   )
 }
 
-/** Great-circle distance in metres. */
-function haversine([lon1, lat1]: number[], [lon2, lat2]: number[]): number {
-  const r = Math.PI / 180
-  const a =
-    Math.sin(((lat2 - lat1) * r) / 2) ** 2 +
-    Math.cos(lat1 * r) * Math.cos(lat2 * r) * Math.sin(((lon2 - lon1) * r) / 2) ** 2
-  return 2 * 6371008.8 * Math.asin(Math.sqrt(a))
-}
-
 /** Map scale from the frame's width on paper and on the ground, rounded like a printed scale. */
 function approxScale(map: LibraryMap): string | null {
   if (!map.source) return null
   const [xMin, , xMax] = map.source.bboxPt
   const paperM = ((xMax - xMin) / 72) * 0.0254
-  const groundM = haversine(map.corners[0], map.corners[1])
+  const groundM = distanceM(map.corners[0], map.corners[1])
   if (!(paperM > 0) || !(groundM > 0)) return null
   const scale = groundM / paperM
   const magnitude = 10 ** Math.floor(Math.log10(scale) - 1)

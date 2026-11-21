@@ -19,14 +19,14 @@ import {
   type LonLat,
   type PackArea,
 } from '../src/lib/packs/area'
+import { metresPerDegree } from '../src/lib/geodesic'
 
 const R = 6371008.8
 const RAD = Math.PI / 180
 
-/** Metres from a point to the polygon (0 inside), by brute force in a local projection. */
+/** Metres from a point to the polygon (0 inside), by brute force in a local projection (WGS84 scale at lat0). */
 function distanceToArea(lon: number, lat: number, rings: LonLat[][], lat0: number): number {
-  const kx = R * RAD * Math.cos(lat0 * RAD)
-  const ky = R * RAD
+  const { east: kx, north: ky } = metresPerDegree(lat0)
   const x = lon * kx
   const y = lat * ky
   let best = Infinity
@@ -87,10 +87,9 @@ describe('ringsFromGeoJSON', () => {
 })
 
 describe('ringsHectares', () => {
-  it('measures a 0.1° square at 50°N (~7,957 ha)', () => {
+  it('measures a 0.1° square at 50°N (7,974.65 ha on WGS84; the old sphere said 7,947.6)', () => {
     const ha = ringsHectares([bboxRing([-120.05, 49.95, -119.95, 50.05])])
-    expect(ha).toBeGreaterThan(7957 * 0.995)
-    expect(ha).toBeLessThan(7957 * 1.005)
+    expect(ha).toBeCloseTo(7974.65, 2)
   })
 })
 

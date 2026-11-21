@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest'
 import type { Position } from 'geojson'
 import { destination } from '../src/lib/cogo'
 import { bearingDeg } from '../src/lib/geo'
-import { haversineMeters } from '../src/lib/measure'
+import { distanceM } from '../src/lib/geodesic'
 import {
   advanceSession,
   etaSeconds,
@@ -35,7 +35,6 @@ import {
 } from '../src/lib/navigation'
 import type { UserFeature } from '../src/lib/features'
 
-const R = 6371008.8
 /** Degrees, minutes, seconds; the sign of `d` applies to the whole angle. */
 const dms = (d: number, m: number, s = 0) => (d < 0 ? -1 : 1) * (Math.abs(d) + m / 60 + s / 3600)
 
@@ -74,23 +73,27 @@ function walk(session: NavSession, fixes: Position[], opts: NavOptions = OPTS) {
 }
 
 describe('bearing and distance to a target', () => {
-  it('matches the Aviation Formulary worked example (LAX → JFK)', () => {
-    // LAX 33°57′N 118°24′W, JFK 40°38′N 73°47′W: d = 0.623585 rad, course 1.150035 rad.
+  // Expected values below are WGS84 geodesics: Karney's algorithm (GeographicLib,
+  // as geodesic.ts computes it), checked against Vincenty's inverse, which agrees
+  // to 0.1 mm and 1e-8°. The two sources work these examples on a sphere.
+  it('the Aviation Formulary example (LAX → JFK), on WGS84', () => {
+    // LAX 33°57′N 118°24′W, JFK 40°38′N 73°47′W. The Formulary's sphere gives
+    // 0.623585 rad (≈ 3,973 km) at 66°; on WGS84: 3,981,600.617 m at 65.93354897°.
     const lax: Position = [dms(-118, 24), dms(33, 57)]
     const jfk: Position = [dms(-73, 47), dms(40, 38)]
-    const { distanceM, bearing } = legTo(lax, jfk)
-    expect(distanceM / R).toBeCloseTo(0.623585, 5)
-    expect(bearing).toBeCloseTo((1.150035 * 180) / Math.PI, 3)
+    const { distanceM: d, bearing } = legTo(lax, jfk)
+    expect(Math.abs(d - 3981600.617)).toBeLessThan(0.01)
+    expect(Math.abs(bearing - 65.93354897)).toBeLessThan(1e-6)
   })
 
-  it('matches the Movable Type example (inverse of its destination example)', () => {
-    // 53°19′14″N 001°43′47″W → 53°11′18″N 000°08′00″E: 124.8 km at 096°01′18″
-    // (the end point is given to the nearest second, ~30 m).
+  it('the Movable Type example, on WGS84', () => {
+    // 53°19′14″N 001°43′47″W → 53°11′18″N 000°08′00″E. Movable Type's sphere
+    // gives 124.8 km at 096°01′18″; on WGS84: 125,207.820 m at 96.0020842°.
     const a: Position = [dms(-1, 43, 47), dms(53, 19, 14)]
     const b: Position = [dms(0, 8, 0), dms(53, 11, 18)]
-    const { distanceM, bearing } = legTo(a, b)
-    expect(Math.abs(distanceM - 124800)).toBeLessThan(60)
-    expect(Math.abs(bearing - dms(96, 1, 18))).toBeLessThan(0.02)
+    const { distanceM: d, bearing } = legTo(a, b)
+    expect(Math.abs(d - 125207.82)).toBeLessThan(0.01)
+    expect(Math.abs(bearing - 96.0020842)).toBeLessThan(1e-6)
   })
 
   it('reads the cardinal directions', () => {
@@ -100,8 +103,8 @@ describe('bearing and distance to a target', () => {
     expect(bearingDeg([1, 0], [0, 0])).toBeCloseTo(270, 9)
   })
 
-  it('one degree of latitude is πR/180', () => {
-    expect(haversineMeters([-120, 50], [-120, 51])).toBeCloseTo((Math.PI * R) / 180, 3)
+  it('one degree of latitude in BC is the WGS84 meridian arc (111,238.681 m at 50–51°N)', () => {
+    expect(Math.abs(distanceM([-120, 50], [-120, 51]) - 111238.681)).toBeLessThan(0.001)
   })
 })
 
@@ -295,7 +298,7 @@ describe('following a line', () => {
     expect(thin.length).toBeLessThanOrEqual(200)
     expect(thin[0]).toEqual(track[0])
     expect(thin[thin.length - 1]).toEqual(track[track.length - 1])
-    for (let i = 1; i < thin.length - 1; i++) expect(haversineMeters(thin[i - 1], thin[i])).toBeGreaterThanOrEqual(10)
+    for (let i = 1; i < thin.length - 1; i++) expect(distanceM(thin[i - 1], thin[i])).toBeGreaterThanOrEqual(10)
   })
 
   it('keeps a short route line as it is', () => {

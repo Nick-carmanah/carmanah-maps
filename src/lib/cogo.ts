@@ -1,7 +1,7 @@
 import type { Position } from 'geojson'
 import { bearingDeg } from './geo'
+import { destination as geodesicDestination, distanceM } from './geodesic'
 import { declinationDeg } from './magnetic'
-import { EARTH_RADIUS_M, haversineMeters } from './measure'
 import {
   M_PER_CHAIN,
   M_PER_FT,
@@ -16,12 +16,11 @@ import {
  * Coordinate geometry for drawing: "shoot a bearing, draw the line"
  * (course and distance), and circles.
  *
- * Positions are computed on the same sphere as every other number in the
- * app (measure.ts, geo.ts, navigation), so a 250 m leg measures 250 m,
- * navigating back to its start reads the typed bearing reversed, and a
- * 100 m circle is 100 m from its centre by the app's own ruler. (Against
- * the WGS84 ellipsoid the sphere is up to ~0.3% short east–west at BC
- * latitudes: 3 m in a kilometre, well inside compass and hip-chain error.)
+ * Positions are computed on the WGS84 ellipsoid, like every other number
+ * in the app (geodesic.ts via measure.ts and geo.ts, navigation), so a
+ * 250 m leg measures 250 m, navigating back to its start reads the typed
+ * bearing reversed, and a 100 m circle is 100 m from its centre by the
+ * app's own ruler and by GIS.
  *
  * Bearings are typed in the angle unit and north reference from the units
  * settings (degrees or mils; true, or magnetic via the offline WMM2025);
@@ -29,36 +28,20 @@ import {
  * Everything here is pure, so tests run it anywhere.
  */
 
-const rad = (d: number) => (d * Math.PI) / 180
-const deg = (r: number) => (r * 180) / Math.PI
-
 /** 0 ≤ deg < 360 */
 export function norm360(d: number): number {
   const n = ((d % 360) + 360) % 360
   return n === 360 ? 0 : n
 }
 
-/** Normalise a longitude to −180…180. */
-function normLon(lon: number): number {
-  return ((((lon + 180) % 360) + 360) % 360) - 180
-}
-
 /**
- * The point `meters` along the great circle from `start` at initial bearing
- * `trueDeg` (degrees from true north). Altitude is not carried over.
+ * The point `meters` along the geodesic (WGS84) from `start` at initial
+ * bearing `trueDeg` (degrees from true north). Altitude is not carried
+ * over; zero or less stays put.
  */
 export function destination(start: Position, trueDeg: number, meters: number): Position {
   if (!(meters > 0)) return [start[0], start[1]]
-  const delta = meters / EARTH_RADIUS_M
-  const theta = rad(trueDeg)
-  const phi1 = rad(start[1])
-  const sinPhi2 = Math.sin(phi1) * Math.cos(delta) + Math.cos(phi1) * Math.sin(delta) * Math.cos(theta)
-  const phi2 = Math.asin(Math.max(-1, Math.min(1, sinPhi2)))
-  const lambda = Math.atan2(
-    Math.sin(theta) * Math.sin(delta) * Math.cos(phi1),
-    Math.cos(delta) - Math.sin(phi1) * sinPhi2,
-  )
-  return [normLon(start[0] + deg(lambda)), deg(phi2)]
+  return geodesicDestination(start, trueDeg, meters)
 }
 
 export interface Inverse {
@@ -70,7 +53,7 @@ export interface Inverse {
 
 /** Distance and initial bearing from a to b: the app's own ruler and compass. */
 export function inverse(a: Position, b: Position): Inverse {
-  return { meters: haversineMeters(a, b), bearing: bearingDeg(a, b) }
+  return { meters: distanceM(a, b), bearing: bearingDeg(a, b) }
 }
 
 // ---- Bearings as typed ----

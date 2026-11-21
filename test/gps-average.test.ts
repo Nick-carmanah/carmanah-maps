@@ -11,11 +11,12 @@ import {
   stopReached,
   type AverageFix,
 } from '../src/lib/gps-average'
+import { metresPerDegree } from '../src/lib/geodesic'
 import { haversineMeters } from '../src/lib/measure'
 
 const TRUTH: [number, number] = [-120.25, 50.5]
-/** Metres per degree on the 6371008.8 m sphere the maths (and haversine) use. */
-const M_PER_DEG_LAT = (Math.PI / 180) * 6371008.8
+/** Metres per degree east and north on WGS84 at the truth's latitude, as the maths use. */
+const M_PER_DEG = metresPerDegree(TRUTH[1])
 const T0 = Date.UTC(2026, 7, 1, 16, 0, 0)
 
 /** Seeded normal noise (mulberry32 + Box–Muller). */
@@ -34,8 +35,8 @@ function gaussian(seed: number) {
 function fixAt(east: number, north: number, i: number, accuracy: number | null = 4, altitude: number | null = null): AverageFix {
   const [lng, lat] = TRUTH
   return {
-    lng: lng + east / (M_PER_DEG_LAT * Math.cos((lat * Math.PI) / 180)),
-    lat: lat + north / M_PER_DEG_LAT,
+    lng: lng + east / M_PER_DEG.east,
+    lat: lat + north / M_PER_DEG.north,
     accuracy,
     altitude,
     time: T0 + i * 1000,
@@ -116,9 +117,10 @@ describe('averageFixes', () => {
   })
 
   it('works at high latitude (local frame, not degrees)', () => {
+    const at69 = metresPerDegree(69)
     const north = (dLatM: number, dLonM: number): AverageFix => ({
-      lng: -135 + dLonM / (M_PER_DEG_LAT * Math.cos((69 * Math.PI) / 180)),
-      lat: 69 + dLatM / M_PER_DEG_LAT,
+      lng: -135 + dLonM / at69.east,
+      lat: 69 + dLatM / at69.north,
       accuracy: 3,
       altitude: null,
       time: T0,

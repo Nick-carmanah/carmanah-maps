@@ -1,7 +1,6 @@
 import type { Position } from 'geojson'
 import { norm360 } from './cogo'
-import { bearingDeg } from './geo'
-import { haversineMeters } from './measure'
+import { azimuthDeg, distanceM } from './geodesic'
 
 /**
  * Heading maths for the compass button, course-up and the heading cone.
@@ -166,12 +165,12 @@ export function courseFromFixes(previous: CourseFix | null, current: CourseFix):
   if (!previous) return null
   const dt = (current.time - previous.time) / 1000
   if (!(dt > 0)) return null
-  const moved = haversineMeters(previous.position, current.position)
+  const moved = distanceM(previous.position, current.position)
   const noise = Math.max(5, ((previous.accuracy ?? 10) + (current.accuracy ?? 10)) / 2)
   if (moved < noise) return null
   const derived = speed ?? moved / dt
   if (derived < MIN_COURSE_SPEED_MPS) return null
-  return { deg: bearingDeg(previous.position, current.position), time: current.time, speed: derived }
+  return { deg: azimuthDeg(previous.position, current.position), time: current.time, speed: derived }
 }
 
 // ---- The compass button ----

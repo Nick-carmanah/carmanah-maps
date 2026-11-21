@@ -1,6 +1,7 @@
 import type { Position } from 'geojson'
 import { zlibSync } from 'fflate'
 import { formatCoord, fromUtm, toUtm, type CoordFormat } from './coords'
+import { distanceM, metresPerDegree } from './geodesic'
 import { M_PER_CHAIN, M_PER_FT, M_PER_MI, M_PER_NM, type DistanceUnit } from './units'
 
 /**
@@ -104,8 +105,6 @@ export interface MapArea {
   h: number
 }
 
-const EARTH_RADIUS = 6378137
-
 export function worldSize(zoom: number): number {
   return 512 * 2 ** zoom
 }
@@ -157,10 +156,16 @@ export function areaCorners(area: MapArea): { nw: Position; ne: Position; se: Po
   }
 }
 
-/** Ground metres per map pixel at the frame's centre (Web Mercator scale varies with latitude). */
+/**
+ * Ground metres per map pixel east–west at the frame's centre, on the WGS84
+ * ellipsoid (Web Mercator's scale varies with latitude). A pixel spans
+ * 360°/worldSize of longitude, and a degree of longitude is
+ * metresPerDegree(lat).east on the ground, so the horizontal scale bar
+ * measures true on the ground.
+ */
 export function metresPerPx(area: MapArea): number {
   const [, lat] = framePointToLngLat(area, area.w / 2, area.h / 2)
-  return (2 * Math.PI * EARTH_RADIUS * Math.cos((lat * Math.PI) / 180)) / worldSize(area.zoom)
+  return (metresPerDegree(lat).east * 360) / worldSize(area.zoom)
 }
 
 /** Paper scale at the frame's centre when printed at full size, e.g. 24000 for 1:24,000. */
@@ -168,10 +173,13 @@ export function scaleDenominator(area: MapArea): number {
   return metresPerPx(area) / (0.0254 / MAP_PX_PER_INCH)
 }
 
-/** Ground size of the frame in metres, measured across its centre. */
+/** Ground size of the frame in metres, measured across its centre (geodesic, WGS84). */
 export function groundSizeM(area: MapArea): { w: number; h: number } {
-  const m = metresPerPx(area)
-  return { w: area.w * m, h: area.h * m }
+  const at = (fx: number, fy: number) => framePointToLngLat(area, fx, fy)
+  return {
+    w: distanceM(at(0, area.h / 2), at(area.w, area.h / 2)),
+    h: distanceM(at(area.w / 2, 0), at(area.w / 2, area.h)),
+  }
 }
 
 // ---- UTM grid --------------------------------------------------------------

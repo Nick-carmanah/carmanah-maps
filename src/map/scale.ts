@@ -1,4 +1,5 @@
 import type { IControl, Map as MlMap } from 'maplibre-gl'
+import { distanceM } from '../lib/geodesic'
 import { M_PER_CHAIN, M_PER_FT, M_PER_MI, M_PER_NM, type DistanceUnit } from '../lib/units'
 
 /** Largest 1, 2, 3 or 5 × 10ⁿ that fits in `x`. */
@@ -81,7 +82,7 @@ export class UnitScaleControl implements IControl {
     const y = map.getContainer().clientHeight / 2
     const left = map.unproject([0, y])
     const right = map.unproject([this.maxWidth, y])
-    const maxMeters = left.distanceTo(right)
+    const maxMeters = distanceM(left.toArray(), right.toArray()) // WGS84, like the measure tool
     if (!(maxMeters > 0)) return
     const { label, ratio } = scaleBarFor(maxMeters, this.unit)
     container.style.width = `${this.maxWidth * ratio}px`

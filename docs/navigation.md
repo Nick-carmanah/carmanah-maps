@@ -55,7 +55,7 @@ navigating (more battery).
 | Piece | Where |
 |---|---|
 | Navigation maths: legs, ETA, route advance, alerts once each, lines as routes, saved sessions | `src/lib/navigation.ts` (pure; `test/navigation.test.ts`) |
-| Bearing + distance → point, typed bearings and lengths | `src/lib/cogo.ts`, byte-identical to the draw-edit branch's, so the two merge cleanly |
+| Bearing + distance → point, typed bearings and lengths | `src/lib/cogo.ts` (from the draw-edit branch; `destination()` is now the WGS84 geodesic, and this version wins when that branch merges) |
 | Heading maths: DeviceOrientation → screen heading (tilt-compensated), iOS, magnetic → true, smoothing, compass vs GPS course | `src/lib/heading.ts` (pure; `test/heading.test.ts`) |
 | Live heading: one shared sensor + GPS listener, iOS permission | `src/lib/compass.ts` |
 | Compass button, course-up camera, heading cone | `src/map/compass-control.ts` (replaces MapLibre's compass in `MapView.tsx`) |
@@ -70,8 +70,9 @@ Notes:
   `CLHeading.magneticHeading`; Android's absolute orientation is the
   rotation-vector sensor). It's turned to true with the offline WMM2025
   declination at your fix (or the map centre) before the map uses it.
-- One sphere everywhere (`measure.ts`, `geo.ts`, `cogo.ts`): a point
-  projected 250 m at 045° reads 250 m at 045° when you navigate to it.
+- WGS84 geodesics everywhere (`geodesic.ts` via `measure.ts`, `geo.ts` and
+  `cogo.ts`): a point projected 250 m at 045° reads 250 m at 045° when you
+  navigate to it, and GIS measures the same.
 - Per person (shared phones): the session being navigated
   (`carmanah-maps.<ownerId>.nav-session`), the planned route (`…nav-route-draft`)
   and the settings (`…navigation`). `deleteOwnerData` removes them with the

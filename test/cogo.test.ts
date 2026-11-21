@@ -10,6 +10,7 @@ import {
   parseLength,
   traverse,
 } from '../src/lib/cogo'
+import { metresPerDegree } from '../src/lib/geodesic'
 import { declinationDeg } from '../src/lib/magnetic'
 import { pathLengthMeters } from '../src/lib/measure'
 import { formatBearing, DEFAULT_UNIT_SETTINGS, M_PER_CHAIN, M_PER_FT } from '../src/lib/units'
@@ -25,25 +26,39 @@ const KAMLOOPS: Position = [-120.3273, 50.6745]
 const DATE = new Date('2026-07-01T00:00:00Z')
 
 describe('destination (course and distance)', () => {
-  it('matches the published worked example (Movable Type “destination point”)', () => {
-    // 53°19′14″N 001°43′47″W, bearing 096°01′18″, 124.8 km
-    //   → 53°11′18″N 000°08′00″E (answer given to the nearest second, ~30 m).
-    const start: Position = [dms(-1, 43, 47), dms(53, 19, 14)]
-    const got = destination(start, dms(96, 1, 18), 124800)
-    expect(Math.abs(got[1] - dms(53, 11, 18)) * 3600).toBeLessThan(0.5)
-    expect(Math.abs(got[0] - dms(0, 8, 0)) * 3600).toBeLessThan(0.5)
+  it('matches GeographicLib’s GeodSolve1 (JFK, 053.5°, 5,850 km → near Paris CDG)', () => {
+    // GeographicLib test GeodSolve1: Direct(40.63972222, −73.77888889, 53.5, 5850e3)
+    //   → lat2 49.01467, lon2 2.56106 (to 0.5e-5°).
+    const got = destination([-73.77888889, 40.63972222], 53.5, 5850e3)
+    expect(Math.abs(got[1] - 49.01467)).toBeLessThan(0.5e-5)
+    expect(Math.abs(got[0] - 2.56106)).toBeLessThan(0.5e-5)
   })
 
-  it('moves d/R radians along a meridian or the equator', () => {
-    const r = 6371008.8
+  it('lands on the Movable Type example’s end point, with its WGS84 course and distance', () => {
+    // 53°19′14″N 001°43′47″W → 53°11′18″N 000°08′00″E. Movable Type works it
+    // on a sphere (124.8 km at 096°01′18″); on WGS84 it's 125,207.820 m at
+    // 096.0020842° (Karney's inverse, as geodesic.ts; Vincenty's agrees to 0.1 mm).
+    const start: Position = [dms(-1, 43, 47), dms(53, 19, 14)]
+    const got = destination(start, 96.0020842, 125207.82)
+    expect(Math.abs(got[1] - dms(53, 11, 18)) * 3600).toBeLessThan(0.001)
+    expect(Math.abs(got[0] - dms(0, 8, 0)) * 3600).toBeLessThan(0.001)
+  })
+
+  it('follows the ellipsoid along the equator and a meridian', () => {
+    const a = 6378137
+    const e2 = (1 / 298.257223563) * (2 - 1 / 298.257223563)
+    // Along the equator: arcs of the equatorial circle, radius a.
+    const east = destination([0, 0], 90, 1000)
+    expect(east[0]).toBeCloseTo((1000 / a) * (180 / Math.PI), 12)
+    expect(east[1]).toBeCloseTo(0, 12)
+    // North from the equator: the meridian's radius of curvature there, a(1 − e²).
     const north = destination([0, 0], 0, 1000)
     expect(north[0]).toBeCloseTo(0, 12)
-    expect(north[1]).toBeCloseTo((1000 / r) * (180 / Math.PI), 12)
-    const east = destination([0, 0], 90, 1000)
-    expect(east[0]).toBeCloseTo((1000 / r) * (180 / Math.PI), 12)
-    expect(east[1]).toBeCloseTo(0, 12)
+    expect(north[1]).toBeCloseTo((1000 / (a * (1 - e2))) * (180 / Math.PI), 10)
+    // 5 km south of Kamloops: the local metres per degree north.
     const south = destination(KAMLOOPS, 180, 5000)
-    expect(KAMLOOPS[1] - south[1]).toBeCloseTo((5000 / r) * (180 / Math.PI), 12)
+    expect(south[0]).toBeCloseTo(KAMLOOPS[0], 12)
+    expect(KAMLOOPS[1] - south[1]).toBeCloseTo(5000 / metresPerDegree((KAMLOOPS[1] + south[1]) / 2).north, 9)
   })
 
   it('agrees with the app’s own ruler: a typed leg measures what was typed', () => {

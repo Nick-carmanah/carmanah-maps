@@ -1,7 +1,7 @@
 import type { Position } from 'geojson'
 import type { UserFeature } from './features'
-import { bearingDeg, centroidOf } from './geo'
-import { haversineMeters } from './measure'
+import { centroidOf } from './geo'
+import { azimuthDeg, distanceM } from './geodesic'
 import { splitSegments } from './track'
 
 /**
@@ -9,10 +9,10 @@ import { splitSegments } from './track'
  * approach alerts, ground speed and ETA. Pure (no DOM, no GPS), so the
  * tests drive it with synthetic fixes; useNavigation.ts feeds it live.
  *
- * Distances and bearings are on the same sphere as every other number in
- * the app (measure.ts haversine, geo.ts initial great-circle bearing, cogo
- * destination), so a point projected 250 m at 045° reads 250 m at 045°
- * when you navigate to it.
+ * Distances and bearings are WGS84 geodesics (geodesic.ts), like every
+ * other number in the app (measure.ts, geo.ts, cogo.ts destination), so a
+ * point projected 250 m at 045° reads 250 m at 045° when you navigate to
+ * it, and GIS measures the same.
  */
 
 /** Where a feature is navigated to: a pin's spot, else the vertex centroid. */
@@ -82,7 +82,7 @@ export function waypointPositions(waypoints: readonly Waypoint[], features: read
 /** Length of each leg: legs[i] runs from point i to point i+1. */
 export function legLengths(points: readonly Position[]): number[] {
   const out: number[] = []
-  for (let i = 1; i < points.length; i++) out.push(haversineMeters(points[i - 1], points[i]))
+  for (let i = 1; i < points.length; i++) out.push(distanceM(points[i - 1], points[i]))
   return out
 }
 
@@ -93,8 +93,8 @@ export function routeLengthM(points: readonly Position[]): number {
 /** From where you are, to waypoint `index`, then along the rest of the route. */
 export function remainingM(position: Position, points: readonly Position[], index: number): number {
   if (index >= points.length) return 0
-  let total = haversineMeters(position, points[index])
-  for (let i = index + 1; i < points.length; i++) total += haversineMeters(points[i - 1], points[i])
+  let total = distanceM(position, points[index])
+  for (let i = index + 1; i < points.length; i++) total += distanceM(points[i - 1], points[i])
   return total
 }
 
@@ -122,7 +122,7 @@ export function advanceSession(
   for (let guard = 0; guard <= points.length; guard++) {
     const index = Math.min(s.index, points.length - 1)
     const wp = s.waypoints[index]
-    const d = haversineMeters(position, points[index])
+    const d = distanceM(position, points[index])
     const last = index >= points.length - 1
     if (d <= radius) {
       if (s.alerted === 'arrive') break // waiting for Skip (auto-advance off)
@@ -188,7 +188,7 @@ export function groundSpeed(fixes: readonly SpeedFix[]): number | null {
   const last = fixes[fixes.length - 1]
   const dt = (last.time - first.time) / 1000
   if (dt < 3) return null
-  const v = haversineMeters(first.position, last.position) / dt
+  const v = distanceM(first.position, last.position) / dt
   return v >= MIN_ETA_SPEED_MPS ? v : null
 }
 
@@ -200,7 +200,7 @@ export function etaSeconds(distanceM: number, speedMps: number | null): number |
 
 /** Distance and bearing (degrees true) from you to a point. */
 export function legTo(position: Position, target: Position): { distanceM: number; bearing: number } {
-  return { distanceM: haversineMeters(position, target), bearing: bearingDeg(position, target) }
+  return { distanceM: distanceM(position, target), bearing: azimuthDeg(position, target) }
 }
 
 // ---- Lines as routes ----
@@ -219,10 +219,10 @@ export function thinPath(points: readonly Position[], minSpacingM = 10, max = MA
   for (;;) {
     const kept: Position[] = [points[0]]
     for (let i = 1; i < points.length - 1; i++) {
-      if (haversineMeters(kept[kept.length - 1], points[i]) >= spacing) kept.push(points[i])
+      if (distanceM(kept[kept.length - 1], points[i]) >= spacing) kept.push(points[i])
     }
     const last = points[points.length - 1]
-    if (kept.length > 1 && haversineMeters(kept[kept.length - 1], last) < spacing / 2) kept.pop()
+    if (kept.length > 1 && distanceM(kept[kept.length - 1], last) < spacing / 2) kept.pop()
     kept.push(last)
     if (kept.length <= max || spacing > 1e7) return kept
     spacing = Math.max(1, spacing) * 1.5
