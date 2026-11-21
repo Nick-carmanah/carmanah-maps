@@ -1,4 +1,5 @@
 import type { Position } from 'geojson'
+import { distanceM, metresPerDegree } from '../geodesic'
 import type { Corners } from './types'
 
 /**
@@ -6,28 +7,36 @@ import type { Corners } from './types'
  * whose frame contains the GPS position gets a marker, the others show how
  * far away they are, and the list can be sorted nearest first.
  *
- * Maths on a local flat projection centred on the position (metres east and
- * north). That's exact enough for "inside or not" (the frame is a few km
- * across) and for ranking maps by distance; the label rounds anyway.
+ * "Inside or not" and the nearest point of the frame come from a local flat
+ * projection centred on the position (metres east and north, true at its
+ * latitude on WGS84): exact enough, the frame is a few km across. The
+ * distance to that nearest point is then the geodesic one (geodesic.ts), so
+ * it matches the measure tool.
  */
-
-const EARTH_RADIUS_M = 6371008.8
-const RAD = Math.PI / 180
 
 type Xy = [number, number]
 
-function localXy(origin: Position, p: Position): Xy {
-  const k = EARTH_RADIUS_M * RAD
-  return [(p[0] - origin[0]) * k * Math.cos(origin[1] * RAD), (p[1] - origin[1]) * k]
+function localScale(origin: Position): Xy {
+  const { east, north } = metresPerDegree(origin[1])
+  return [east, north]
 }
 
-/** Distance from the origin (0, 0) to segment a–b. */
-function distanceToSegment(a: Xy, b: Xy): number {
+function localXy(origin: Position, p: Position, [kx, ky] = localScale(origin)): Xy {
+  return [(p[0] - origin[0]) * kx, (p[1] - origin[1]) * ky]
+}
+
+/** Point on segment a–b nearest the origin (0, 0). */
+function nearestOnSegment(a: Xy, b: Xy): Xy {
   const dx = b[0] - a[0]
   const dy = b[1] - a[1]
   const len2 = dx * dx + dy * dy
   const t = len2 > 0 ? Math.min(1, Math.max(0, -(a[0] * dx + a[1] * dy) / len2)) : 0
-  return Math.hypot(a[0] + t * dx, a[1] + t * dy)
+  return [a[0] + t * dx, a[1] + t * dy]
+}
+
+/** Distance from the origin (0, 0) to segment a–b. */
+function distanceToSegment(a: Xy, b: Xy): number {
+  return Math.hypot(...nearestOnSegment(a, b))
 }
 
 /** True when the position is inside the map's frame (edges count as inside). */
@@ -44,13 +53,18 @@ export function containsPoint(corners: Corners, position: Position): boolean {
   return inside
 }
 
-/** Metres from the position to the nearest edge of the map's frame; 0 inside it. */
+/** Metres from the position to the nearest edge of the map's frame (geodesic); 0 inside it. */
 export function distanceToMapM(corners: Corners, position: Position): number {
   if (containsPoint(corners, position)) return 0
-  const ring = corners.map((c) => localXy(position, c))
-  let best = Infinity
-  for (let i = 0; i < ring.length; i++) best = Math.min(best, distanceToSegment(ring[i], ring[(i + 1) % ring.length]))
-  return best
+  const k = localScale(position)
+  const ring = corners.map((c) => localXy(position, c, k))
+  let best: Xy | null = null
+  for (let i = 0; i < ring.length; i++) {
+    const p = nearestOnSegment(ring[i], ring[(i + 1) % ring.length])
+    if (!best || Math.hypot(...p) < Math.hypot(...best)) best = p
+  }
+  if (!best) return Infinity
+  return distanceM(position, [position[0] + best[0] / k[0], position[1] + best[1] / k[1]])
 }
 
 export interface MapDistance {

@@ -1,18 +1,10 @@
 import type { FeatureCollection, Position } from 'geojson'
 import type { LngLatBoundsLike } from 'maplibre-gl'
+import { azimuthDeg } from './geodesic'
 
-const rad = (d: number) => (d * Math.PI) / 180
-const deg = (r: number) => (r * 180) / Math.PI
-
-/** Initial great-circle bearing from a to b, degrees true (0–360). */
+/** Initial bearing from a to b along the geodesic (WGS84), degrees true (0–360). */
 export function bearingDeg(a: Position, b: Position): number {
-  const phi1 = rad(a[1])
-  const phi2 = rad(b[1])
-  const dLam = rad(b[0] - a[0])
-  const y = Math.sin(dLam) * Math.cos(phi2)
-  const x =
-    Math.cos(phi1) * Math.sin(phi2) - Math.sin(phi1) * Math.cos(phi2) * Math.cos(dLam)
-  return (deg(Math.atan2(y, x)) + 360) % 360
+  return azimuthDeg(a, b)
 }
 
 /** Simple vertex centroid — good enough for picking a navigation target. */

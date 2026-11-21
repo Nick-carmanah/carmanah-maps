@@ -1,4 +1,5 @@
 import type { Feature, FeatureCollection, Position } from 'geojson'
+import { destination, metresPerDegree } from './geodesic'
 import { haversineMeters } from './measure'
 import type { UserFeature } from './features'
 import { splitSegments } from './track'
@@ -19,10 +20,9 @@ export function pointInRing(point: Position, ring: Position[]): boolean {
   return inside
 }
 
-/** Distance in meters from point to a polyline (local flat-earth approx). */
+/** Distance in meters from point to a polyline (local flat frame, true at the point's latitude on WGS84). */
 export function distToPolylineM(point: Position, line: Position[]): number {
-  const mPerDegLat = 111320
-  const mPerDegLng = mPerDegLat * Math.cos((point[1] * Math.PI) / 180)
+  const { east: mPerDegLng, north: mPerDegLat } = metresPerDegree(point[1])
   const toXY = ([lng, lat]: Position) => [
     (lng - point[0]) * mPerDegLng,
     (lat - point[1]) * mPerDegLat,
@@ -60,18 +60,11 @@ export function insideFence(position: Position, feature: UserFeature): boolean {
   )
 }
 
-/** Circle polygon (for drawing pin fences on the map). */
+/** Circle polygon (for drawing pin fences on the map): every vertex exactly radiusM from the centre. */
 export function circlePolygon(center: Position, radiusM: number, steps = 48): Position[] {
-  const mPerDegLat = 111320
-  const mPerDegLng = mPerDegLat * Math.cos((center[1] * Math.PI) / 180)
   const ring: Position[] = []
-  for (let i = 0; i <= steps; i++) {
-    const a = (i / steps) * Math.PI * 2
-    ring.push([
-      center[0] + (Math.cos(a) * radiusM) / mPerDegLng,
-      center[1] + (Math.sin(a) * radiusM) / mPerDegLat,
-    ])
-  }
+  // From east, anticlockwise, closed (the last vertex repeats the first).
+  for (let i = 0; i <= steps; i++) ring.push(destination(center, 90 - (360 * (i % steps)) / steps, radiusM))
   return ring
 }
 
