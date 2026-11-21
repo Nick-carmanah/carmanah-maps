@@ -1,0 +1,514 @@
+/* ---- Navigation, compass and routes (useNavTools, CompassControl) ----
+   Glove-friendly: every button at least 44 px tall. */
+
+/* The map's own buttons (zoom, compass, 3D, location) at 44 px. */
+.maplibregl-ctrl-top-right .maplibregl-ctrl-group button {
+  width: 44px;
+  height: 44px;
+}
+
+/* ---- Compass button ---- */
+.maplibregl-ctrl-group.compass-ctrl {
+  background: transparent;
+  box-shadow: none;
+  border-radius: 50%;
+}
+
+.maplibregl-ctrl-top-right .maplibregl-ctrl-group.compass-ctrl button.compass-btn {
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  border-radius: 50%;
+  background: rgba(26, 26, 26, 0.94);
+  border: 2px solid #3a3a3a;
+  filter: none;
+  position: relative;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+.compass-btn svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.compass-btn .compass-ring {
+  fill: none;
+  stroke: #555;
+  stroke-width: 1.5;
+}
+
+.compass-btn .compass-north {
+  fill: #ef4444;
+}
+
+.compass-btn .compass-south {
+  fill: #e5e7eb;
+}
+
+.compass-btn .compass-n {
+  fill: #fca5a5;
+  font: 700 7px system-ui, sans-serif;
+  text-anchor: middle;
+}
+
+.compass-btn.turned {
+  border-color: #facc15;
+}
+
+.compass-btn.course-up {
+  border-color: #4ade80;
+  box-shadow: 0 0 0 3px rgba(74, 222, 128, 0.35);
+}
+
+.compass-btn .compass-mode {
+  position: absolute;
+  bottom: -4px;
+  right: -6px;
+  font: 700 10px system-ui, sans-serif;
+  color: #052e16;
+  background: #4ade80;
+  border-radius: 6px;
+  padding: 0 3px;
+  pointer-events: none;
+}
+
+.compass-btn .compass-mode:empty {
+  display: none;
+}
+
+/* ---- Heading cone, inside MapLibre's location dot ---- */
+.heading-cone {
+  position: absolute;
+  width: 100px;
+  height: 100px;
+  left: calc(50% - 50px);
+  top: calc(50% - 50px);
+  pointer-events: none;
+  z-index: -1;
+  transform-origin: 50% 50%;
+}
+
+.heading-cone svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.heading-cone[data-source='gps'] {
+  opacity: 0.8;
+}
+
+/* ---- Readout (top of the map) ---- */
+.nav-panel {
+  position: absolute;
+  top: 48px;
+  left: 10px;
+  right: 66px; /* clear of the map buttons */
+  max-width: 520px;
+  z-index: 6;
+  background: rgba(17, 24, 17, 0.94);
+  backdrop-filter: blur(8px);
+  border: 1px solid #166534;
+  border-radius: 12px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
+}
+
+.nav-panel.finished {
+  border-color: #4ade80;
+}
+
+.nav-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.nav-pointer {
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  display: block;
+  transition: transform 0.25s ease;
+}
+
+.nav-pointer svg {
+  width: 100%;
+  height: 100%;
+}
+
+.nav-pointer path {
+  fill: #4ade80;
+  stroke: #052e16;
+  stroke-width: 1;
+}
+
+.nav-figures {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 12px;
+  row-gap: 0;
+  font-variant-numeric: tabular-nums;
+  color: #4ade80;
+}
+
+.nav-big {
+  font-size: 22px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.nav-mid {
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.nav-end {
+  flex: 0 0 auto;
+  min-height: 44px;
+  min-width: 56px;
+}
+
+.nav-sub {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 10px;
+  font-size: 13px;
+  color: #bbf7d0;
+  font-variant-numeric: tabular-nums;
+}
+
+.nav-target {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.nav-warn {
+  color: #facc15;
+}
+
+.nav-buttons {
+  display: flex;
+  gap: 6px;
+}
+
+.nav-buttons .btn {
+  flex: 1;
+  min-height: 44px;
+}
+
+.nav-panel .btn:disabled,
+.nav-dock .btn:disabled {
+  opacity: 0.4;
+}
+
+/* The track chip moves below the readout while both show. */
+.app .track-chip {
+  top: var(--nav-panel-bottom, 60px);
+}
+
+/* ---- Docks (route planning, project a point) ---- */
+.nav-dock {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 29;
+  background: rgba(26, 26, 26, 0.97);
+  backdrop-filter: blur(10px);
+  border-top: 1px solid #3a3a3a;
+  border-radius: 14px 14px 0 0;
+  padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 46vh; /* the crosshair, mid-map, stays in view */
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.nav-dock .sheet-header,
+.nav-sheet .sheet-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.nav-dock .sheet-title,
+.nav-sheet .sheet-title {
+  flex: 1;
+  font-weight: 600;
+  font-size: 15px;
+}
+
+.nav-dock .btn,
+.nav-sheet .btn,
+.nav-feature-actions .btn {
+  min-height: 44px;
+}
+
+.nav-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.nav-actions .btn {
+  flex: 1 1 auto;
+}
+
+.route-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.route-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #232323;
+  border: 1px solid #333;
+  border-radius: 10px;
+  padding: 4px 6px;
+}
+
+.route-num {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #facc15;
+  color: #111827;
+  font-weight: 700;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.route-name {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.route-name small {
+  color: #999;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.route-icon-btn {
+  flex: 0 0 auto;
+  width: 44px;
+  padding: 0;
+}
+
+.nav-segment {
+  display: flex;
+  gap: 6px;
+}
+
+.nav-segment .btn {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nav-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+}
+
+.nav-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12px;
+  color: #aaa;
+}
+
+.nav-input-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.nav-input {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  min-height: 44px;
+  background: #2a2a2a;
+  border: 1px solid #444;
+  border-radius: 8px;
+  color: #eee;
+  font-size: 18px;
+  padding: 6px 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.nav-input[aria-invalid='true'] {
+  border-color: #b91c1c;
+}
+
+.nav-unit {
+  color: #ccc;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.nav-unit-select {
+  min-height: 44px;
+  background: #2a2a2a;
+  border: 1px solid #444;
+  border-radius: 8px;
+  color: #eee;
+  font-size: 15px;
+  padding: 0 6px;
+}
+
+.settings-hint.error {
+  color: #fca5a5;
+}
+
+.nav-result {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-variant-numeric: tabular-nums;
+  color: #fdba74;
+  font-size: 14px;
+}
+
+.nav-result span {
+  color: #aaa;
+  font-size: 12px;
+}
+
+/* ---- Hub sheet and feature lists ---- */
+.nav-sheet {
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.nav-row-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.nav-row-text small {
+  color: #999;
+  font-size: 12px;
+}
+
+.tool-row:disabled {
+  opacity: 0.45;
+}
+
+.nav-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.nav-picker-filter {
+  font-size: 15px;
+}
+
+.nav-picker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+
+.nav-sheet .nav-picker-list {
+  max-height: 55vh;
+}
+
+.nav-picker-row {
+  display: flex;
+  gap: 6px;
+}
+
+.nav-picker-main {
+  flex: 1;
+  min-width: 0;
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #232323;
+  border: 1px solid #333;
+  border-radius: 10px;
+  color: #eee;
+  padding: 6px 10px;
+  text-align: left;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.nav-picker-main:active {
+  background: #303030;
+}
+
+.nav-picker-icon {
+  width: 20px;
+  text-align: center;
+}
+
+.nav-picker-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nav-picker-leg {
+  color: #999;
+  font-size: 12px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.nav-picker-go {
+  color: #4ade80;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.nav-picker-follow {
+  flex: 0 0 auto;
+}
+
+.nav-feature-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}

@@ -138,9 +138,9 @@ needs the Capacitor wrap.
 | Avenza | Us | PWA? | Notes |
 |---|---|---|---|
 | GPS info panel: speed, altitude, accuracy | ✅ | yes | Tools → GPS info |
-| Compass heading, course-up, lock orientation, true/magnetic | ⬜ | yes | DeviceOrientation API (iOS asks permission once) |
-| Navigate to feature / along track / to coordinates / project destination / routes | 🟡 | yes | Point only today |
-| Navigation settings: visit each point in turn, arrival radius | ⬜ | yes | |
+| Compass heading, course-up, lock orientation, true/magnetic | ✅ | yes | Done 2026-11-19 ([navigation.md](navigation.md)): compass button north-up ↔ course-up, heading cone, GPS course fallback. iOS asks for motion access from the tap; check on real phones |
+| Navigate to feature / along track / to coordinates / project destination / routes | ✅ | yes | Done 2026-11-19: feature, crosshair (coordinates via Find), projected point, follow a line, planned routes leg by leg |
+| Navigation settings: visit each point in turn, arrival radius | ✅ | yes | Arrival radius, approach alert, next point on arrival, sound, vibrate, screen on. Background alerts = Native (Phase D) |
 | Geofences: features, map boundary, on import, enter/leave/both | 🟡 | partly | Foreground only in a PWA; background = Native |
 | External Bluetooth GPS (Bad Elf, Emlid, Trimble…) | ⬜ | partly | iOS: receivers that feed system location already work in our PWA. Android: mock-location apps work; direct Bluetooth = Native |
 | Coordinate formats incl. easting/northing in the map's projection | 🟡 | yes | BC Albers (EPSG:3005) done. Still missing: easting/northing in an imported map's own projection. ➖ BNG, ➖ what3words (paid API) |

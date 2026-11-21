@@ -25,6 +25,7 @@ import { getIcon } from '../lib/store'
 import { ICON_PREFIX, isImportedIcon } from '../lib/symbols'
 import { navTargetPosition } from '../hooks/useNavigation'
 import GoogleMapsButton from './GoogleMapsButton'
+import type { ReactNode } from 'react'
 
 export interface PhotoThumb {
   id: string
@@ -43,6 +44,8 @@ interface FeatureSheetProps {
   onAddPhotos: (files: FileList) => void
   onDeletePhoto: (id: string) => void
   onClose: () => void
+  /** More navigation actions (add to route, project from here, follow a line). */
+  navigation?: ReactNode
 }
 
 /** Bottom sheet for editing a pin/line/area: name, notes, color, symbol,
@@ -59,6 +62,7 @@ export default function FeatureSheet({
   onAddPhotos,
   onDeletePhoto,
   onClose,
+  navigation,
 }: FeatureSheetProps) {
   const update = (patch: Partial<UserFeature>) =>
     onChange({ ...feature, ...patch, updatedAt: Date.now() })
@@ -418,6 +422,8 @@ export default function FeatureSheet({
         <div className="feature-links">
           <GoogleMapsButton position={navTargetPosition(feature)} />
         </div>
+
+        {navigation}
 
         <div className="sheet-row">
           <div className="color-swatches">

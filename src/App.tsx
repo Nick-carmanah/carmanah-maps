@@ -32,7 +32,6 @@ import { pathLengthMeters, ringAreaSqMeters } from './lib/measure'
 import {
   formatAltitude,
   formatArea,
-  formatBearing,
   formatDistance,
   formatPace,
   formatSpeed,
@@ -48,7 +47,8 @@ import { useGpsTools } from './hooks/useGpsTools'
 import { conventionActive, buildConventionName, getProfile, saveProfile } from './lib/naming'
 import { readMapsContext } from './lib/storage/owner'
 import { EMBEDDED } from './lib/embedded'
-import { navTargetPosition, useNavigation } from './hooks/useNavigation'
+import { useNavTools } from './hooks/useNavTools'
+import NavigationSettings from './components/NavigationSettings'
 import { useGeofences } from './hooks/useGeofences'
 import { useMapsLibrary } from './hooks/useMapsLibrary'
 import { useMapViewer } from './hooks/useMapViewer'
@@ -105,7 +105,6 @@ export default function App() {
   const track = useTrackRecorder((m, e) => showToastRef.current(m, e))
   const showToastRef = useRef<(m: string, e?: boolean) => void>(() => {})
   const maps = useMapsLibrary((m, e) => showToastRef.current(m, e))
-  const [navTargetId, setNavTargetId] = useState<string | null>(null)
   const [photos, setPhotos] = useState<PhotoThumb[]>([])
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [profile, setProfile] = useState(getProfile)
@@ -126,8 +125,6 @@ export default function App() {
   const [searchNonce, setSearchNonce] = useState(0)
   // My Maps → Base map → Offline areas: opens the Offline maps sheet over the base map.
   const [offlineNonce, setOfflineNonce] = useState(0)
-  const navTarget = userFeatures.find((f) => f.id === navTargetId) ?? null
-  const nav = useNavigation(navTarget, (m, e) => showToastRef.current(m, e))
   useGeofences(userFeatures, (m) => showToastRef.current(`⚠️ ${m}`, true))
   const [toast, setToast] = useState<Toast | null>(null)
   const sendAreaLayers = useMemo(
@@ -425,7 +422,6 @@ export default function App() {
       setUserFeatures((prev) => prev.filter((f) => !gone.has(f.id)))
       setEditingLayerId(null)
       setEditingId((cur) => (cur && gone.has(cur) ? null : cur))
-      setNavTargetId((cur) => (cur && gone.has(cur) ? null : cur))
     },
     [],
   )
@@ -556,6 +552,22 @@ export default function App() {
       setMeasuring(false)
     },
   })
+
+  // Navigation: go to, routes, project a point, compass (src/hooks/useNavTools.tsx).
+  const navTools = useNavTools({
+    map: mainMap,
+    features: userFeatures,
+    hiddenLayerIds: hiddenLayers,
+    createFeature: (kind, coordinates, notes, opts) => createFeature(kind, coordinates, notes, opts),
+    notify: showToast,
+    onBeforeTool: () => {
+      setPinMode(false)
+      setMeasuring(false)
+    },
+    onCloseFeature: () => setEditingId(null),
+  })
+  // The feature sheet's Navigate button keeps its old wiring.
+  const setNavTargetId = navTools.goToFeature
 
   // The live track as the map draws it: positions, and where it resumed.
   const liveTrack = useMemo(
@@ -720,12 +732,11 @@ export default function App() {
           showGrid={gridOn}
           trackPoints={liveTrack.positions}
           trackBreaks={liveTrack.breaks}
-          navLine={
-            nav.position && navTarget ? [nav.position, navTargetPosition(navTarget)] : null
-          }
+          navLine={navTools.navLine}
           pinMode={pinMode}
           onDropPin={handleDropPin}
           onEditFeature={(id) => {
+            if (navTools.onFeatureTap(id)) return
             setEditingLayerId(null)
             setEditingId(id)
           }}
@@ -904,6 +915,7 @@ export default function App() {
                     action: () => setSearchNonce((n) => n + 1),
                   },
                   ...gpsTools.tools,
+                  ...navTools.tools,
                   {
                     icon: '📂',
                     label: 'Import KML/KMZ, GPX, CSV, shapefile or GeoPDF',
@@ -944,6 +956,8 @@ export default function App() {
             </div>
           </div>
         )}
+
+        {navTools.view}
       </div>
 
       {scanning && (
@@ -1012,6 +1026,7 @@ export default function App() {
             <FeatureSheet
               feature={feature}
               layers={layers}
+              navigation={navTools.featureActions(feature)}
               onEnsureLayer={ensureLayer}
               photos={photos}
               onAddPhotos={handleAddPhotos}
@@ -1065,34 +1080,6 @@ export default function App() {
         </div>
       )}
 
-      {navTarget && (
-        <div className="nav-chip">
-          <span
-            className="nav-arrow"
-            style={{ transform: `rotate(${(nav.bearing ?? 0) - 90}deg)` }}
-            aria-hidden
-          >
-            ➤
-          </span>
-          <span className="readout">
-            {navTarget.name}
-            {nav.distanceM != null ? (
-              <>
-                {' · '}
-                {formatDistance(nav.distanceM)} · {formatBearing(nav.bearing ?? 0, nav.position)}
-                {nav.etaS != null && ` · ETA ${formatDuration(nav.etaS * 1000)}`}
-                {nav.speedMps != null && ` · ${formatSpeed(nav.speedMps)}`}
-              </>
-            ) : (
-              ' · waiting for GPS…'
-            )}
-          </span>
-          <button className="btn" onClick={() => setNavTargetId(null)}>
-            End
-          </button>
-        </div>
-      )}
-
       {settingsOpen && (
         <div className="feature-sheet settings-sheet">
           <div className="sheet-header">
@@ -1136,6 +1123,7 @@ export default function App() {
                 : 'Set a callsign and/or fire number to auto-name features the BCWS way (What_When_Where_Who).'}
             </div>
             <UnitsSettings />
+            <NavigationSettings />
           </div>
         </div>
       )}

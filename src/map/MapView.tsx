@@ -14,6 +14,7 @@ import {
 } from '../lib/units'
 import { useUnitSettings } from '../hooks/useUnitSettings'
 import { UnitScaleControl } from './scale'
+import { CompassControl } from './compass-control'
 import { STATUS_COLORS, STATUS_FALLBACK_COLOR, type LiveFires } from '../lib/livefires'
 import {
   DEFAULT_FILL_OPACITY,
@@ -372,18 +373,18 @@ export default function MapView({
       }
     })
 
-    map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-right')
+    // Our compass replaces MapLibre's: north-up ↔ course-up, heading cone (compass-control.ts).
+    const geolocate = new maplibregl.GeolocateControl({
+      positionOptions: { enableHighAccuracy: true },
+      trackUserLocation: true,
+    })
+    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right')
+    map.addControl(new CompassControl(geolocate, (m, e) => onNotifyRef.current(m, e)), 'top-right')
     map.addControl(
       new maplibregl.TerrainControl({ source: 'terrain', exaggeration: 1.3 }),
       'top-right',
     )
-    map.addControl(
-      new maplibregl.GeolocateControl({
-        positionOptions: { enableHighAccuracy: true },
-        trackUserLocation: true,
-      }),
-      'top-right',
-    )
+    map.addControl(geolocate, 'top-right')
     const scale = new UnitScaleControl(getUnitSettings().distance)
     scaleRef.current = scale
     map.addControl(scale, 'bottom-left')

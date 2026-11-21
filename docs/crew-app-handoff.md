@@ -242,6 +242,21 @@ missing.
 **Please keep clearing Cache `shared/`** at sign-out and when the app starts,
 so a copy left by a closed page doesn't wait for the next person.
 
+### Compass (motion and orientation)
+
+The compass button and navigation read the phone's heading through the web
+DeviceOrientation API; no plugin ([navigation.md](navigation.md)). On iOS
+the page calls `DeviceOrientationEvent.requestPermission()` from the tap on
+the compass button or on Go/Start. To check in the store app:
+
+- WKWebView asks its `WKUIDelegate` (iOS 15+,
+  `requestDeviceOrientationAndMotionPermissionFor`). With no delegate method
+  the system shows its own prompt. If Capacitor's web view answers "deny",
+  course-up still works from the GPS course while moving, and the page says
+  so once.
+- Android's WebView gives `deviceorientationabsolute` without asking.
+- Nothing is sent anywhere: heading, routes and alerts stay on the phone.
+
 ## 7. What must never change on your side
 
 1. `/capacitor.js` stays at the root, as @capacitor/core's `dist/capacitor.js`
@@ -282,6 +297,14 @@ so a copy left by a closed page doesn't wait for the next person.
   Downloading in the background would need `@capacitor/file-transfer`
   (a crew-app change; not needed for Phase 0).
 - Android hasn't been run. There's no Android SDK on the build Mac.
+- **Navigation alerts need the map page open and the screen on.** A web
+  page can't vibrate an iPhone, and the silent switch mutes its beep, so on
+  iOS an arrival shows as a message (and a notification if the page is
+  hidden but still running). Alerts with the phone locked or the app in the
+  background need background location plus `@capacitor/haptics` and
+  `@capacitor/local-notifications`: Phase D specs, not needed now.
+  "Keep the screen on while navigating" (Settings → Navigation, off by
+  default) uses the Wake Lock API where the WebView has it.
 
 ## 9. One line for `/privacy`
 
